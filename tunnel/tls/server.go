@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
+	stdtls "crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"io"
@@ -19,6 +19,8 @@ import (
 
 	"github.com/voidluo/trojan-go/common"
 	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/internal/database"
+	"github.com/voidluo/trojan-go/internal/webserver"
 	"github.com/voidluo/trojan-go/log"
 	"github.com/voidluo/trojan-go/redirector"
 	"github.com/voidluo/trojan-go/tunnel"
@@ -34,15 +36,17 @@ type Server struct {
 	sni                string
 	alpn               []string
 	PreferServerCipher bool
-	keyPair            []tls.Certificate
+	keyPair            []stdtls.Certificate
 	keyPairLock        sync.RWMutex
 	httpResp           []byte
 	cipherSuite        []uint16
 	sessionTicket      bool
-	curve              []tls.CurveID
+	curve              []stdtls.CurveID
 	keyLogger          io.WriteCloser
 	connChan           chan tunnel.Conn
 	wsChan             chan tunnel.Conn
+	adminServer        *webserver.AdminServer
+	adminPath          string
 	redir              *redirector.Redirector
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -80,13 +84,13 @@ func (s *Server) acceptLoop() {
 			return
 		}
 		go func(conn net.Conn) {
-			tlsConfig := &tls.Config{
+			tlsConfig := &stdtls.Config{
 				CipherSuites:             s.cipherSuite,
 				PreferServerCipherSuites: s.PreferServerCipher,
 				SessionTicketsDisabled:   !s.sessionTicket,
 				NextProtos:               s.alpn,
 				KeyLogWriter:             s.keyLogger,
-				GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				GetCertificate: func(hello *stdtls.ClientHelloInfo) (*stdtls.Certificate, error) {
 					s.keyPairLock.RLock()
 					defer s.keyPairLock.RUnlock()
 					sni := s.keyPair[0].Leaf.Subject.CommonName
@@ -113,7 +117,7 @@ func (s *Server) acceptLoop() {
 			handshakeRewindConn := common.NewRewindConn(conn)
 			handshakeRewindConn.SetBufferSize(2048)
 
-			tlsConn := tls.Server(handshakeRewindConn, tlsConfig)
+			tlsConn := stdtls.Server(handshakeRewindConn, tlsConfig)
 			err = tlsConn.Handshake()
 			handshakeRewindConn.StopBuffering()
 
@@ -144,7 +148,7 @@ func (s *Server) acceptLoop() {
 
 			log.Info("tls connection from", conn.RemoteAddr())
 			state := tlsConn.ConnectionState()
-			log.Trace("tls handshake", tls.CipherSuiteName(state.CipherSuite), state.DidResume, state.NegotiatedProtocol)
+			log.Trace("tls handshake", stdtls.CipherSuiteName(state.CipherSuite), state.DidResume, state.NegotiatedProtocol)
 
 			// we use a real http header parser to mimic a real http server
 			rewindConn := common.NewRewindConn(tlsConn)
@@ -227,7 +231,7 @@ func (s *Server) checkKeyPairLoop(checkRate time.Duration, keyPath string, certP
 				continue
 			}
 			s.keyPairLock.Lock()
-			s.keyPair = []tls.Certificate{*keyPair}
+			s.keyPair = []stdtls.Certificate{*keyPair}
 			s.keyPairLock.Unlock()
 			lastKeyBytes = keyBytes
 			lastCertBytes = certBytes
@@ -244,7 +248,7 @@ func (s *Server) checkKeyPairLoop(checkRate time.Duration, keyPath string, certP
 	}
 }
 
-func loadKeyPair(keyPath string, certPath string, password string) (*tls.Certificate, error) {
+func loadKeyPair(keyPath string, certPath string, password string) (*stdtls.Certificate, error) {
 	if password != "" {
 		keyFile, err := os.ReadFile(keyPath)
 		if err != nil {
@@ -265,7 +269,7 @@ func loadKeyPair(keyPath string, certPath string, password string) (*tls.Certifi
 			return nil, common.NewError("failed to decode cert file").Base(err)
 		}
 
-		keyPair, err := tls.X509KeyPair(certBlock.Bytes, decryptedKey)
+		keyPair, err := stdtls.X509KeyPair(certBlock.Bytes, decryptedKey)
 		if err != nil {
 			return nil, err
 		}
@@ -276,7 +280,7 @@ func loadKeyPair(keyPath string, certPath string, password string) (*tls.Certifi
 
 		return &keyPair, nil
 	}
-	keyPair, err := tls.LoadX509KeyPair(certPath, keyPath)
+	keyPair, err := stdtls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		return nil, common.NewError("failed to load key pair").Base(err)
 	}
@@ -350,11 +354,22 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 		connChan:           make(chan tunnel.Conn, 32),
 		wsChan:             make(chan tunnel.Conn, 32),
 		redir:              redirector.NewRedirector(ctx),
-		keyPair:            []tls.Certificate{*keyPair},
+		keyPair:            []stdtls.Certificate{*keyPair},
 		keyLogger:          keyLogger,
 		cipherSuite:        cipherSuite,
 		ctx:                ctx,
 		cancel:             cancel,
+	}
+
+	if cfg.Admin.Enabled {
+		db, err := database.InitDb(cfg.Admin.DbPath)
+		if err != nil {
+			log.Warn("admin panel: failed to init db:", err)
+		} else {
+			server.adminServer = webserver.New(db, cfg.Admin.Password, cfg.Admin.Path, cfg.Admin.Port)
+			server.adminPath = cfg.Admin.Path
+			log.Infof("admin panel enabled on https://[domain]%s (password: %s)", cfg.Admin.Path, cfg.Admin.Password)
+		}
 	}
 
 	go server.acceptLoop()

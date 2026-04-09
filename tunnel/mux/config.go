@@ -4,7 +4,7 @@ import "github.com/voidluo/trojan-go/config"
 
 type MuxConfig struct {
 	Enabled     bool `json:"enabled" yaml:"enabled"`
-	IdleTimeout int  `json:"idle_timeout" yaml:"idle-timeout"`
+	IdleTimeout int  `json:"idle_timeout" yaml:"idle_timeout"`
 	Concurrency int  `json:"concurrency" yaml:"concurrency"`
 }
 

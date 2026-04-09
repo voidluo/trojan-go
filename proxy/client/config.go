@@ -27,7 +27,7 @@ type Config struct {
 	Websocket       WebsocketConfig       `json:"websocket" yaml:"websocket"`
 	Router          RouterConfig          `json:"router" yaml:"router"`
 	Shadowsocks     ShadowsocksConfig     `json:"shadowsocks" yaml:"shadowsocks"`
-	TransportPlugin TransportPluginConfig `json:"transport_plugin" yaml:"transport-plugin"`
+	TransportPlugin TransportPluginConfig `json:"transport_plugin" yaml:"transport_plugin"`
 }
 
 func init() {

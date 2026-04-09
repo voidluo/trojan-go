@@ -1,0 +1,56 @@
+# =================================================================
+# Trojan-Go 官方生产级示例配置文件 (Super Suite 版)
+# =================================================================
+# 这是一个极简化的示例。大部分选项都有合理的默认值，或已被注释以保持简洁。
+# 详细文档请参阅: https://p4gefau1t.github.io/trojan-go/
+
+run_type: server
+local_addr: 0.0.0.0
+local_port: 443
+
+# 远程回落 (当不是 Trojan 流量且不是管理后台流量时，请求将转给此地址)
+remote_addr: 127.0.0.1
+remote_port: 80
+
+# TLS / SSL 配置 (必须提供证书)
+ssl:
+  cert: /etc/trojan-go/tls/cert.pem
+  key: /etc/trojan-go/tls/key.pem
+  # sni: your-domain.com
+  # fallback_addr: 127.0.0.1
+  # fallback_port: 80
+
+# -----------------------------------------------------------------
+# [NEW] 内置管理后台配置 (共享 443 端口与证书)
+# -----------------------------------------------------------------
+admin:
+  enabled: true
+  # 后台登录密码 (必填)
+  password: "trojan@123"
+  port: 0  # 如果设为 8081，则可以通过 http://域名:8081 访问
+              # 如果设为 0 (默认)，则仅通过复用模式 https://域名/ 访问
+
+  # 挂载路径 (默认 /，访问 https://域名/ 即可登录)
+  # path: "/"
+  
+  # 数据库位置 (默认 /etc/trojan-go/trojan-go.db)
+  # db: "/etc/trojan-go/trojan-go.db"
+
+# -----------------------------------------------------------------
+# 可选功能 (按需取消注释开启)
+# -----------------------------------------------------------------
+
+# [Websocket 混淆] 同样共享 443 端口
+# websocket:
+#   enabled: true
+#   path: "/trojan-ws"
+#   hostname: your-domain.com
+
+# [Mux 多路复用]
+# mux:
+#   enabled: true
+
+# [路由器] 用于屏蔽特定流量或负载均衡
+# router:
+#   enabled: true
+#   config: "/etc/trojan-go/routes.json"

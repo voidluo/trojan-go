@@ -134,4 +134,3 @@ func (g *geositeCache) Unmarshal(filename, code string) (*v2router.GeoSite, erro
 
 	return nil, common.NewError("list " + code + " not found in " + filename)
 }
-

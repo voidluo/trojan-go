@@ -6,12 +6,12 @@ import (
 
 type MySQLConfig struct {
 	Enabled    bool   `json:"enabled" yaml:"enabled"`
-	ServerHost string `json:"server_addr" yaml:"server-addr"`
-	ServerPort int    `json:"server_port" yaml:"server-port"`
+	ServerHost string `json:"server_addr" yaml:"server_addr"`
+	ServerPort int    `json:"server_port" yaml:"server_port"`
 	Database   string `json:"database" yaml:"database"`
 	Username   string `json:"username" yaml:"username"`
 	Password   string `json:"password" yaml:"password"`
-	CheckRate  int    `json:"check_rate" yaml:"check-rate"`
+	CheckRate  int    `json:"check_rate" yaml:"check_rate"`
 }
 
 type Config struct {

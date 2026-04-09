@@ -9,8 +9,8 @@ type ShadowsocksConfig struct {
 }
 
 type Config struct {
-	RemoteHost  string            `json:"remote_addr" yaml:"remote-addr"`
-	RemotePort  int               `json:"remote_port" yaml:"remote-port"`
+	RemoteHost  string            `json:"remote_addr" yaml:"remote_addr"`
+	RemotePort  int               `json:"remote_port" yaml:"remote_port"`
 	Shadowsocks ShadowsocksConfig `json:"shadowsocks" yaml:"shadowsocks"`
 }
 

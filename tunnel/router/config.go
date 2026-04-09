@@ -14,8 +14,8 @@ type RouterConfig struct {
 	Bypass          []string `json:"bypass" yaml:"bypass"`
 	Proxy           []string `json:"proxy" yaml:"proxy"`
 	Block           []string `json:"block" yaml:"block"`
-	DomainStrategy  string   `json:"domain_strategy" yaml:"domain-strategy"`
-	DefaultPolicy   string   `json:"default_policy" yaml:"default-policy"`
+	DomainStrategy  string   `json:"domain_strategy" yaml:"domain_strategy"`
+	DefaultPolicy   string   `json:"default_policy" yaml:"default_policy"`
 	GeoIPFilename   string   `json:"geoip" yaml:"geoip"`
 	GeoSiteFilename string   `json:"geosite" yaml:"geosite"`
 }

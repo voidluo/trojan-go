@@ -8,14 +8,14 @@ type SSLConfig struct {
 	Enabled        bool     `json:"enabled" yaml:"enabled"`
 	CertPath       string   `json:"cert" yaml:"cert"`
 	KeyPath        string   `json:"key" yaml:"key"`
-	VerifyClient   bool     `json:"verify_client" yaml:"verify-client"`
-	ClientCertPath []string `json:"client_cert" yaml:"client-cert"`
+	VerifyClient   bool     `json:"verify_client" yaml:"verify_client"`
+	ClientCertPath []string `json:"client_cert" yaml:"client_cert"`
 }
 
 type APIConfig struct {
 	Enabled bool      `json:"enabled" yaml:"enabled"`
-	APIHost string    `json:"api_addr" yaml:"api-addr"`
-	APIPort int       `json:"api_port" yaml:"api-port"`
+	APIHost string    `json:"api_addr" yaml:"api_addr"`
+	APIPort int       `json:"api_port" yaml:"api_port"`
 	SSL     SSLConfig `json:"ssl" yaml:"ssl"`
 }
 

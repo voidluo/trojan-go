@@ -1,0 +1,18 @@
+{
+    "router": {
+        "enabled": true,
+        "bypass": [
+            "geoip:cn",
+            "geosite:cn",
+            "geosite:apple",
+            "geosite:google@cn"
+        ],
+        "block": [
+            "geosite:category-ads-all"
+        ],
+        "proxy": [
+            "geosite:geolocation-!cn"
+        ],
+        "default_policy": "proxy"
+    }
+}
