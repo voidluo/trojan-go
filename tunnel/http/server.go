@@ -5,14 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
+
 	"net"
 	"net/http"
 	"strings"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/log"
-	"github.com/p4gefau1t/trojan-go/tunnel"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/log"
+	"github.com/voidluo/trojan-go/tunnel"
 )
 
 type ConnectConn struct {
@@ -83,7 +83,7 @@ func (s *Server) acceptLoop() {
 		}
 
 		go func(conn net.Conn) {
-			reqBufReader := bufio.NewReader(ioutil.NopCloser(conn))
+			reqBufReader := bufio.NewReader(io.NopCloser(conn))
 			req, err := http.ReadRequest(reqBufReader)
 			if err != nil {
 				log.Error(common.NewError("not a valid http request").Base(err))
@@ -140,7 +140,7 @@ func (s *Server) acceptLoop() {
 						return
 					}
 
-					respBufReader := bufio.NewReader(ioutil.NopCloser(respReader)) // read response from the remote
+					respBufReader := bufio.NewReader(io.NopCloser(respReader)) // read response from the remote
 					resp, err := http.ReadResponse(respBufReader, req)
 					if err != nil {
 						log.Error(common.NewError("http failed to read http response").Base(err))

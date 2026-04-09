@@ -1,6 +1,6 @@
 package adapter
 
-import "github.com/p4gefau1t/trojan-go/config"
+import "github.com/voidluo/trojan-go/config"
 
 type Config struct {
 	LocalHost string `json:"local_addr" yaml:"local-addr"`
@@ -8,7 +8,7 @@ type Config struct {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		return new(Config)
 	})
 }

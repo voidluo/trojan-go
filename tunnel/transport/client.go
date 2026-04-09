@@ -6,11 +6,11 @@ import (
 	"os/exec"
 	"strconv"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
-	"github.com/p4gefau1t/trojan-go/log"
-	"github.com/p4gefau1t/trojan-go/tunnel"
-	"github.com/p4gefau1t/trojan-go/tunnel/freedom"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/log"
+	"github.com/voidluo/trojan-go/tunnel"
+	"github.com/voidluo/trojan-go/tunnel/freedom"
 )
 
 // Client implements tunnel.Client

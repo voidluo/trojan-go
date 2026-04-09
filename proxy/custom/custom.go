@@ -6,21 +6,21 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
-	"github.com/p4gefau1t/trojan-go/proxy"
-	"github.com/p4gefau1t/trojan-go/tunnel"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/proxy"
+	"github.com/voidluo/trojan-go/tunnel"
 )
 
-func convert(i interface{}) interface{} {
+func convert(i any) any {
 	switch x := i.(type) {
-	case map[interface{}]interface{}:
-		m2 := map[string]interface{}{}
+	case map[any]any:
+		m2 := map[string]any{}
 		for k, v := range x {
 			m2[k.(string)] = convert(v)
 		}
 		return m2
-	case []interface{}:
+	case []any:
 		for i, v := range x {
 			x[i] = convert(v)
 		}

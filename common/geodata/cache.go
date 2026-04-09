@@ -1,42 +1,50 @@
 package geodata
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
+	"sync"
 
 	v2router "github.com/v2fly/v2ray-core/v4/app/router"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/log"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/log"
 )
 
-type geoipCache map[string]*v2router.GeoIP
-
-func (g geoipCache) Has(key string) bool {
-	return !(g.Get(key) == nil)
+type GenericCache[T any] struct {
+	sync.RWMutex
+	data map[string]*T
 }
 
-func (g geoipCache) Get(key string) *v2router.GeoIP {
-	if g == nil {
+func (c *GenericCache[T]) Get(key string) *T {
+	c.RLock()
+	defer c.RUnlock()
+	if c.data == nil {
 		return nil
 	}
-	return g[key]
+	return c.data[key]
 }
 
-func (g geoipCache) Set(key string, value *v2router.GeoIP) {
-	if g == nil {
-		g = make(map[string]*v2router.GeoIP)
+func (c *GenericCache[T]) Set(key string, value *T) {
+	c.Lock()
+	defer c.Unlock()
+	if c.data == nil {
+		c.data = make(map[string]*T)
 	}
-	g[key] = value
+	c.data[key] = value
 }
 
-func (g geoipCache) Unmarshal(filename, code string) (*v2router.GeoIP, error) {
+type geoipCache struct {
+	GenericCache[v2router.GeoIP]
+}
+
+func (g *geoipCache) Unmarshal(filename, code string) (*v2router.GeoIP, error) {
 	asset := common.GetAssetLocation(filename)
 	idx := strings.ToLower(asset + ":" + code)
-	if g.Has(idx) {
+	if entry := g.Get(idx); entry != nil {
 		log.Debugf("geoip cache HIT: %s -> %s", code, idx)
-		return g.Get(idx), nil
+		return entry, nil
 	}
 
 	geoipBytes, err := Decode(asset, code)
@@ -55,7 +63,7 @@ func (g geoipCache) Unmarshal(filename, code string) (*v2router.GeoIP, error) {
 	case ErrFailedToReadBytes, ErrFailedToReadExpectedLenBytes,
 		ErrInvalidGeodataFile, ErrInvalidGeodataVarintLength:
 		log.Warnf("failed to decode geoip file: %s, fallback to the original ReadFile method", filename)
-		geoipBytes, err = ioutil.ReadFile(asset)
+		geoipBytes, err := os.ReadFile(asset)
 		if err != nil {
 			return nil, err
 		}
@@ -77,32 +85,16 @@ func (g geoipCache) Unmarshal(filename, code string) (*v2router.GeoIP, error) {
 	return nil, common.NewError("country code " + code + " not found in " + filename)
 }
 
-type geositeCache map[string]*v2router.GeoSite
-
-func (g geositeCache) Has(key string) bool {
-	return !(g.Get(key) == nil)
+type geositeCache struct {
+	GenericCache[v2router.GeoSite]
 }
 
-func (g geositeCache) Get(key string) *v2router.GeoSite {
-	if g == nil {
-		return nil
-	}
-	return g[key]
-}
-
-func (g geositeCache) Set(key string, value *v2router.GeoSite) {
-	if g == nil {
-		g = make(map[string]*v2router.GeoSite)
-	}
-	g[key] = value
-}
-
-func (g geositeCache) Unmarshal(filename, code string) (*v2router.GeoSite, error) {
+func (g *geositeCache) Unmarshal(filename, code string) (*v2router.GeoSite, error) {
 	asset := common.GetAssetLocation(filename)
 	idx := strings.ToLower(asset + ":" + code)
-	if g.Has(idx) {
+	if entry := g.Get(idx); entry != nil {
 		log.Debugf("geosite cache HIT: %s -> %s", code, idx)
-		return g.Get(idx), nil
+		return entry, nil
 	}
 
 	geositeBytes, err := Decode(asset, code)
@@ -121,7 +113,7 @@ func (g geositeCache) Unmarshal(filename, code string) (*v2router.GeoSite, error
 	case ErrFailedToReadBytes, ErrFailedToReadExpectedLenBytes,
 		ErrInvalidGeodataFile, ErrInvalidGeodataVarintLength:
 		log.Warnf("failed to decode geoip file: %s, fallback to the original ReadFile method", filename)
-		geositeBytes, err = ioutil.ReadFile(asset)
+		geositeBytes, err := os.ReadFile(asset)
 		if err != nil {
 			return nil, err
 		}
@@ -142,3 +134,4 @@ func (g geositeCache) Unmarshal(filename, code string) (*v2router.GeoSite, error
 
 	return nil, common.NewError("list " + code + " not found in " + filename)
 }
+

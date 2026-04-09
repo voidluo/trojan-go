@@ -1,7 +1,7 @@
 package mysql
 
 import (
-	"github.com/p4gefau1t/trojan-go/config"
+	"github.com/voidluo/trojan-go/config"
 )
 
 type MySQLConfig struct {
@@ -19,7 +19,7 @@ type Config struct {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		return &Config{
 			MySQL: MySQLConfig{
 				ServerPort: 3306,

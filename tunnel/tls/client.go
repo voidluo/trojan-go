@@ -6,17 +6,18 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"io"
-	"io/ioutil"
+	"os"
+
 	"strings"
 
 	utls "github.com/refraction-networking/utls"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
-	"github.com/p4gefau1t/trojan-go/log"
-	"github.com/p4gefau1t/trojan-go/tunnel"
-	"github.com/p4gefau1t/trojan-go/tunnel/tls/fingerprint"
-	"github.com/p4gefau1t/trojan-go/tunnel/transport"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/log"
+	"github.com/voidluo/trojan-go/tunnel"
+	"github.com/voidluo/trojan-go/tunnel/tls/fingerprint"
+	"github.com/voidluo/trojan-go/tunnel/transport"
 )
 
 // Client is a tls client
@@ -118,7 +119,7 @@ func NewClient(ctx context.Context, underlay tunnel.Client) (*Client, error) {
 	}
 
 	if cfg.TLS.CertPath != "" {
-		caCertByte, err := ioutil.ReadFile(cfg.TLS.CertPath)
+		caCertByte, err := os.ReadFile(cfg.TLS.CertPath)
 		if err != nil {
 			return nil, common.NewError("failed to load cert file").Base(err)
 		}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/p4gefau1t/trojan-go/common"
+	"github.com/voidluo/trojan-go/common"
 )
 
 type Foo struct {
@@ -18,7 +18,7 @@ type TestStruct struct {
 	Field3 []Foo  `json,yaml:"field3"`
 }
 
-func creator() interface{} {
+func creator() any {
 	return &TestStruct{}
 }
 

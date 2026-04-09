@@ -1,6 +1,6 @@
 package client
 
-import "github.com/p4gefau1t/trojan-go/config"
+import "github.com/voidluo/trojan-go/config"
 
 type MuxConfig struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
@@ -31,7 +31,7 @@ type Config struct {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		return new(Config)
 	})
 }

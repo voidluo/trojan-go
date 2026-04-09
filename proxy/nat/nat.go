@@ -6,12 +6,12 @@ package nat
 import (
 	"context"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
-	"github.com/p4gefau1t/trojan-go/proxy"
-	"github.com/p4gefau1t/trojan-go/proxy/client"
-	"github.com/p4gefau1t/trojan-go/tunnel"
-	"github.com/p4gefau1t/trojan-go/tunnel/tproxy"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/proxy"
+	"github.com/voidluo/trojan-go/proxy/client"
+	"github.com/voidluo/trojan-go/tunnel"
+	"github.com/voidluo/trojan-go/tunnel/tproxy"
 )
 
 const Name = "NAT"
@@ -40,7 +40,7 @@ func init() {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		return new(client.Config)
 	})
 }

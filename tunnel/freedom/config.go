@@ -1,6 +1,6 @@
 package freedom
 
-import "github.com/p4gefau1t/trojan-go/config"
+import "github.com/voidluo/trojan-go/config"
 
 type Config struct {
 	LocalHost    string             `json:"local_addr" yaml:"local-addr"`
@@ -24,7 +24,7 @@ type ForwardProxyConfig struct {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		return &Config{
 			TCP: TCPConfig{
 				PreferIPV4: false,

@@ -4,16 +4,17 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
+
 	"net"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
-	"github.com/p4gefau1t/trojan-go/test/util"
-	"github.com/p4gefau1t/trojan-go/tunnel/transport"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/test/util"
+	"github.com/voidluo/trojan-go/tunnel/transport"
 )
 
 func TestHTTP(t *testing.T) {
@@ -41,7 +42,7 @@ func TestHTTP(t *testing.T) {
 		req, err := http.ReadRequest(bufReader)
 		common.Must(err)
 		fmt.Println(req)
-		ioutil.ReadAll(req.Body)
+		io.ReadAll(req.Body)
 		req.Body.Close()
 		resp, err := http.Get("http://127.0.0.1:" + util.HTTPPort)
 		common.Must(err)

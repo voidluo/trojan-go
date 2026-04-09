@@ -8,10 +8,10 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
-	"github.com/p4gefau1t/trojan-go/log"
-	"github.com/p4gefau1t/trojan-go/statistic"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/log"
+	"github.com/voidluo/trojan-go/statistic"
 )
 
 const Name = "MEMORY"
@@ -209,7 +209,7 @@ func (a *Authenticator) DelUser(hash string) error {
 
 func (a *Authenticator) ListUsers() []statistic.User {
 	result := make([]statistic.User, 0)
-	a.users.Range(func(k, v interface{}) bool {
+	a.users.Range(func(k, v any) bool {
 		result = append(result, v.(*User))
 		return true
 	})

@@ -1,8 +1,8 @@
 package router
 
 import (
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
 )
 
 type Config struct {
@@ -21,7 +21,7 @@ type RouterConfig struct {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		cfg := &Config{
 			Router: RouterConfig{
 				DefaultPolicy:   "proxy",

@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
-	"io/ioutil"
+
 	"net"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/log"
-	"github.com/p4gefau1t/trojan-go/tunnel"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/log"
+	"github.com/voidluo/trojan-go/tunnel"
 )
 
 type PacketConn struct {
@@ -70,7 +70,7 @@ func (c *PacketConn) ReadWithMetadata(payload []byte) (int, *tunnel.Metadata, er
 	}
 
 	if len(payload) < length || length > MaxPacketSize {
-		io.CopyN(ioutil.Discard, c.Conn, int64(length)) // drain the rest of the packet
+		io.CopyN(io.Discard, c.Conn, int64(length)) // drain the rest of the packet
 		return 0, nil, common.NewError("incoming packet size is too large")
 	}
 

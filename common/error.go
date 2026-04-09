@@ -6,16 +6,22 @@ import (
 
 type Error struct {
 	info string
+	err  error
 }
 
 func (e *Error) Error() string {
+	if e.err != nil {
+		return fmt.Sprintf("%s: %v", e.info, e.err)
+	}
 	return e.info
 }
 
+func (e *Error) Unwrap() error {
+	return e.err
+}
+
 func (e *Error) Base(err error) *Error {
-	if err != nil {
-		e.info += " | " + err.Error()
-	}
+	e.err = err
 	return e
 }
 
@@ -32,7 +38,7 @@ func Must(err error) {
 	}
 }
 
-func Must2(_ interface{}, err error) {
+func Must2(_ any, err error) {
 	if err != nil {
 		fmt.Println(err)
 		panic(err)

@@ -1,6 +1,6 @@
 package shadowsocks
 
-import "github.com/p4gefau1t/trojan-go/config"
+import "github.com/voidluo/trojan-go/config"
 
 type ShadowsocksConfig struct {
 	Enabled  bool   `json:"enabled" yaml:"enabled"`
@@ -15,7 +15,7 @@ type Config struct {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		return &Config{
 			Shadowsocks: ShadowsocksConfig{
 				Method: "AES-128-GCM",

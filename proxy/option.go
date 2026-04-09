@@ -4,15 +4,16 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
+
 	"os"
 	"runtime"
 	"strings"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/constant"
-	"github.com/p4gefau1t/trojan-go/log"
-	"github.com/p4gefau1t/trojan-go/option"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/constant"
+	"github.com/voidluo/trojan-go/log"
+	"github.com/voidluo/trojan-go/option"
 )
 
 type Option struct {
@@ -34,7 +35,7 @@ func detectAndReadConfig(file string) ([]byte, bool, error) {
 		log.Fatalf("unsupported config format: %s. use .yaml or .json instead.", file)
 	}
 
-	data, err := ioutil.ReadFile(file)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, false, err
 	}
@@ -125,7 +126,7 @@ func (o *StdinOption) Handle() error {
 		}
 	}
 
-	data, e := ioutil.ReadAll(bufio.NewReader(os.Stdin))
+	data, e := io.ReadAll(bufio.NewReader(os.Stdin))
 	if e != nil {
 		log.Fatalf("Failed to read from stdin: %s", e.Error())
 	}

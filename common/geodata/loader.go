@@ -12,10 +12,7 @@ type geodataCache struct {
 }
 
 func NewGeodataLoader() GeodataLoader {
-	return &geodataCache{
-		make(map[string]*v2router.GeoIP),
-		make(map[string]*v2router.GeoSite),
-	}
+	return &geodataCache{}
 }
 
 func (g *geodataCache) LoadIP(filename, country string) ([]*v2router.CIDR, error) {

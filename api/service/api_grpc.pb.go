@@ -66,7 +66,7 @@ func RegisterTrojanClientServiceServer(s grpc.ServiceRegistrar, srv TrojanClient
 	s.RegisterService(&TrojanClientService_ServiceDesc, srv)
 }
 
-func _TrojanClientService_GetTraffic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _TrojanClientService_GetTraffic_Handler(srv any, ctx context.Context, dec func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
 	in := new(GetTrafficRequest)
 	if err := dec(in); err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func _TrojanClientService_GetTraffic_Handler(srv interface{}, ctx context.Contex
 		Server:     srv,
 		FullMethod: "/trojan.api.TrojanClientService/GetTraffic",
 	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+	handler := func(ctx context.Context, req any) (any, error) {
 		return srv.(TrojanClientServiceServer).GetTraffic(ctx, req.(*GetTrafficRequest))
 	}
 	return interceptor(ctx, in, info, handler)
@@ -253,7 +253,7 @@ func RegisterTrojanServerServiceServer(s grpc.ServiceRegistrar, srv TrojanServer
 	s.RegisterService(&TrojanServerService_ServiceDesc, srv)
 }
 
-func _TrojanServerService_ListUsers_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _TrojanServerService_ListUsers_Handler(srv any, stream grpc.ServerStream) error {
 	m := new(ListUsersRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
@@ -274,7 +274,7 @@ func (x *trojanServerServiceListUsersServer) Send(m *ListUsersResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func _TrojanServerService_GetUsers_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _TrojanServerService_GetUsers_Handler(srv any, stream grpc.ServerStream) error {
 	return srv.(TrojanServerServiceServer).GetUsers(&trojanServerServiceGetUsersServer{stream})
 }
 
@@ -300,7 +300,7 @@ func (x *trojanServerServiceGetUsersServer) Recv() (*GetUsersRequest, error) {
 	return m, nil
 }
 
-func _TrojanServerService_SetUsers_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _TrojanServerService_SetUsers_Handler(srv any, stream grpc.ServerStream) error {
 	return srv.(TrojanServerServiceServer).SetUsers(&trojanServerServiceSetUsersServer{stream})
 }
 

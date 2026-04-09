@@ -8,10 +8,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/p4gefau1t/trojan-go/common"
-	"github.com/p4gefau1t/trojan-go/config"
-	"github.com/p4gefau1t/trojan-go/log"
-	"github.com/p4gefau1t/trojan-go/tunnel"
+	"github.com/voidluo/trojan-go/common"
+	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/log"
+	"github.com/voidluo/trojan-go/tunnel"
 )
 
 const Name = "PROXY"
@@ -69,7 +69,9 @@ func (p *Proxy) relayConnLoop() {
 					defer outbound.Close()
 					errChan := make(chan error, 2)
 					copyConn := func(a, b net.Conn) {
-						_, err := io.Copy(a, b)
+						buf := common.GetBuffer()
+						defer common.PutBuffer(buf)
+						_, err := io.CopyBuffer(a, b, buf)
 						errChan <- err
 					}
 					go copyConn(inbound, outbound)
@@ -115,8 +117,9 @@ func (p *Proxy) relayPacketLoop() {
 					defer outbound.Close()
 					errChan := make(chan error, 2)
 					copyPacket := func(a, b tunnel.PacketConn) {
+						buf := common.GetBuffer()
+						defer common.PutBuffer(buf)
 						for {
-							buf := make([]byte, MaxPacketSize)
 							n, metadata, err := a.ReadWithMetadata(buf)
 							if err != nil {
 								errChan <- err

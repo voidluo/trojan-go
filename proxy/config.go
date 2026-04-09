@@ -1,6 +1,6 @@
 package proxy
 
-import "github.com/p4gefau1t/trojan-go/config"
+import "github.com/voidluo/trojan-go/config"
 
 type Config struct {
 	RunType  string `json:"run_type" yaml:"run-type"`
@@ -9,7 +9,7 @@ type Config struct {
 }
 
 func init() {
-	config.RegisterConfigCreator(Name, func() interface{} {
+	config.RegisterConfigCreator(Name, func() any {
 		return &Config{
 			LogLevel: 1,
 		}
