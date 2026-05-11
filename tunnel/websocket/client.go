@@ -49,6 +49,11 @@ func (c *Client) Close() error {
 
 func NewClient(ctx context.Context, underlay tunnel.Client) (*Client, error) {
 	cfg := config.FromContext(ctx, Name).(*Config)
+	if cfg.Websocket.Path != "" && !strings.HasPrefix(cfg.Websocket.Path, "/") {
+		oldPath := cfg.Websocket.Path
+		cfg.Websocket.Path = "/" + cfg.Websocket.Path
+		log.Infof("自动修正 WebSocket 路径: %s -> %s", oldPath, cfg.Websocket.Path)
+	}
 	if !strings.HasPrefix(cfg.Websocket.Path, "/") {
 		return nil, common.NewError("websocket path must start with \"/\"")
 	}

@@ -4,205 +4,607 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trojan-Go 管理面板</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background: #0f172a; color: #f8fafc; font-family: 'Inter', system-ui, sans-serif; }
-        .glass { background: rgba(255,255,255,0.04); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spinner { width: 40px; height: 40px; border: 3px solid #334155; border-top-color: #818cf8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+        :root {
+            --bg: #0b0e14;
+            --surface: #151921;
+            --surface2: #1c212c;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --text: #e2e8f0;
+            --text2: #94a3b8;
+            --border: #2d3748;
+            --red: #ef4444;
+            --green: #10b981;
+            --amber: #f59e0b;
+            --sidebar-width: 240px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', 'Inter', -apple-system, sans-serif; }
+        body { background: var(--bg); color: var(--text); overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+        
+        /* Layout */
+        #app { display: flex; min-height: 100vh; }
+        
+        /* Sidebar */
+        aside { 
+            width: var(--sidebar-width); background: var(--surface); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column; position: fixed; height: 100vh; z-index: 100;
+        }
+        .sidebar-header { padding: 24px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+        .logo { font-size: 18px; font-weight: 700; color: #fff; letter-spacing: -0.5px; cursor: pointer; }
+        .sidebar-menu { padding: 16px 0; flex: 1; }
+        .menu-item { 
+            padding: 12px 24px; color: var(--text2); display: flex; align-items: center; gap: 12px;
+            cursor: pointer; transition: 0.2s; font-size: 14px; text-decoration: none;
+        }
+        .menu-item:hover { background: var(--surface2); color: #fff; }
+        .menu-item.active { color: var(--primary); background: rgba(59, 130, 246, 0.1); border-right: 3px solid var(--primary); }
+        .sidebar-footer { padding: 16px; border-top: 1px solid var(--border); }
+
+        /* Main Content */
+        main { margin-left: var(--sidebar-width); flex: 1; padding: 32px; max-width: 1400px; width: 100%; transition: 0.3s; }
+        .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+        h1 { font-size: 24px; font-weight: 600; }
+
+        /* Cards & Stats */
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 24px; margin-bottom: 24px; }
+        
+        .stat-card h3 { color: var(--text2); font-size: 13px; font-weight: 500; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-card .val { font-size: 28px; font-weight: 700; }
+        .progress-bg { width: 100%; height: 6px; background: var(--surface2); border-radius: 3px; margin-top: 12px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--primary); transition: 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        /* Buttons */
+        .btn { 
+            padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px;
+            color: #fff; background: var(--surface2); border: 1px solid transparent;
+        }
+        .btn:hover { background: var(--border); transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+        .btn-primary { background: var(--primary); }
+        .btn-primary:hover { background: var(--primary-hover); box-shadow: 0 0 15px rgba(59, 130, 246, 0.4); }
+        .btn-red { background: rgba(239, 68, 68, 0.1); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.2); }
+        .btn-red:hover { background: rgba(239, 68, 68, 0.2); }
+        .btn-green { background: rgba(16, 185, 129, 0.1); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .btn-amber { background: rgba(245, 158, 11, 0.1); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.2); }
+
+        /* Search & Actions */
+        .action-container { display: flex; gap: 16px; align-items: center; margin-bottom: 16px; }
+        .search-wrapper { position: relative; flex: 1; max-width: 400px; }
+        .search-wrapper input { padding-left: 36px; border-radius: 12px; height: 40px; border: 1px solid var(--border); background: var(--surface2); }
+        .search-wrapper::before { content: '🔍'; position: absolute; left: 12px; top: 10px; font-size: 14px; opacity: 0.5; }
+
+        /* Table Design */
+        .table-container { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 0; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th { 
+            text-align: left; color: var(--text2); font-size: 12px; padding: 14px 20px; 
+            border-bottom: 1px solid var(--border); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+            cursor: pointer; user-select: none;
+        }
+        th:hover { color: #fff; }
+        td { padding: 16px 20px; border-bottom: 1px solid var(--surface2); font-size: 14px; vertical-align: middle; }
+        tr:hover { background: rgba(255,255,255,0.02); }
+        
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+        .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+        .badge-green { background: rgba(16, 185, 129, 0.1); color: var(--green); }
+        .badge-green::before { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .badge-red { background: rgba(239, 68, 68, 0.1); color: var(--red); }
+        .badge-red::before { background: var(--red); }
+        .badge-amber { background: rgba(245, 158, 11, 0.1); color: var(--amber); }
+
+        /* Modal & Editor */
+        .modal-overlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 1000;
+            opacity: 0; pointer-events: none; transition: 0.25s; backdrop-filter: blur(4px);
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal { 
+            background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+            width: 90%; max-width: 650px; padding: 32px; transform: translateY(20px); transition: 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        }
+        .modal-overlay.active .modal { transform: translateY(0); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .modal-header h2 { font-size: 20px; }
+        
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 8px; font-weight: 500; }
+        input, select, textarea { 
+            width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+            padding: 12px 16px; color: #fff; outline: none; transition: 0.2s; font-size: 14px;
+        }
+        input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+        
+        .terminal { 
+            background: #05070a; border-radius: 14px; padding: 20px; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 13px; line-height: 1.6; height: 550px; overflow-y: auto; color: #cbd5e1;
+            border: 1px solid var(--border); box-shadow: inset 0 2px 20px rgba(0,0,0,0.7);
+        }
+        .editor { width:100%; height:450px; font-family: 'JetBrains Mono', monospace; background:#05070a; color:#fff; padding:16px; border:1px solid var(--border); border-radius: 12px; font-size: 13px; line-height: 1.5; }
+
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Service Monitoring Controls */
+        .log-controls { 
+            display: flex; 
+            flex-wrap: wrap; 
+            align-items: center; 
+            gap: 16px; 
+            margin-bottom: 24px; 
+            padding: 16px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        .btn-group-inline { display: flex; gap: 8px; }
+        .select-custom { 
+            background: var(--surface2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat right 12px center !important;
+            background-size: 16px !important;
+            color: var(--text) !important; 
+            border: 1px solid var(--border) !important;
+            padding: 0 36px 0 12px !important;
+            height: 40px !important;
+            line-height: 40px !important;
+            border-radius: 10px !important;
+            width: auto !important;
+            font-size: 13px;
+            cursor: pointer;
+            appearance: none;
+            transition: 0.2s;
+        }
+        .select-custom:hover { border-color: var(--primary) !important; }
+        .log-filter-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); cursor: pointer; user-select: none; }
+        .log-filter-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; margin: 0; }
     </style>
 </head>
-<body class="min-h-screen">
-
+<body>
 <div id="app"></div>
+<input type="file" id="restoreFile" style="display:none" onchange="doRestore(this)">
 
 <script>
-const API = '/api';
 let token = localStorage.getItem('token');
+let currentUsers = [];
+let searchText = '';
+const API = '/api';
 
-// ─── Hash 路由引擎 ───────────────────────────────────
-const routes = {
-    '/login': renderLogin,
-    '/status': renderStatus,
-    '/user': renderUser,
+async function api(method, path, body = null) {
+    // 审计补丁：超时校验
+    const loginTime = localStorage.getItem('login_time');
+    if (token && loginTime) {
+        const diff = Date.now() - parseInt(loginTime);
+        if (diff > 1800 * 1000) { // 30分钟
+            alert('会话已过期，请重新登录');
+            logout(); return null;
+        }
+    }
+
+    const options = {
+        method,
+        headers: { 'Content-Type': 'application/json' }
+    };
+    if (token) options.headers['Authorization'] = 'Bearer ' + token;
+    if (body) options.body = JSON.stringify(body);
+    
+    try {
+        const res = await fetch(API + path, options);
+        if (res.status === 401) { logout(); return null; }
+        const data = await res.json();
+        if (data && data.error) throw new Error(data.error);
+        return data;
+    } catch (err) {
+        console.error(err);
+        return null;
+    }
+}
+
+const Dashboard = {
+    render: async () => {
+        const stats = await api('GET', '/status');
+        const srv = await api('GET', '/server-info');
+        if (!srv) return '加载失败...';
+
+        const cpuUsage = srv.cpu[0].toFixed(1);
+        const memPercent = srv.memory.usedPercent.toFixed(1);
+
+        return `
+        <div class="header-bar"><h1>系统概览</h1><button class="btn" onclick="router()">刷新状态</button></div>
+        <div class="grid">
+            <div class="card stat-card"><h3>在线用户</h3><div class="val">${stats.user_count}</div></div>
+            <div class="card stat-card"><h3>TCP 连接</h3><div class="val">${srv.connections.tcp}</div></div>
+            <div class="card stat-card"><h3>UDP 连接</h3><div class="val">${srv.connections.udp}</div></div>
+            <div class="card stat-card"><h3>运行天数</h3><div class="val">${(srv.host.uptime/3600/24).toFixed(1)} Days</div></div>
+        </div>
+        <div class="grid">
+            <div class="card stat-card">
+                <h3>CPU 负载</h3><div class="val">${cpuUsage}%</div>
+                <div class="progress-bg"><div class="progress-fill" style="width:${cpuUsage}%"></div></div>
+            </div>
+            <div class="card stat-card">
+                <h3>内存占用 (${fmtBytes(srv.memory.used)} / ${fmtBytes(srv.memory.total)})</h3><div class="val">${memPercent}%</div>
+                <div class="progress-bg"><div class="progress-fill" style="width:${memPercent}%"></div></div>
+            </div>
+            <div class="card stat-card">
+                <h3>磁盘占用 (${fmtBytes(srv.disk.used)} / ${fmtBytes(srv.disk.total)})</h3><div class="val">${srv.disk.usedPercent.toFixed(1)}%</div>
+                <div class="progress-bg"><div class="progress-fill" style="width:${srv.disk.usedPercent}%"></div></div>
+            </div>
+        </div>
+        <div class="card">
+            <h3>服务器基础详情</h3>
+            <div style="margin-top:20px; color:var(--text2); font-size:14px; display:grid; grid-template-columns:1fr 1fr; gap:16px">
+                <div>平台: <span style="color:#fff">${srv.host.platform} ${srv.host.platformVersion}</span></div>
+                <div>内核架构: <span style="color:#fff">${srv.host.kernelArch}</span></div>
+                <div>平均负载: <span style="color:#fff">${srv.load.load1.toFixed(2)} / ${srv.load.load5.toFixed(2)} / ${srv.load.load15.toFixed(2)}</span></div>
+                <div>主机名: <span style="color:#fff">${srv.host.hostname}</span></div>
+            </div>
+        </div>`;
+    }
 };
 
-function navigate(hash) {
-    location.hash = '#' + hash;
-}
-
-function router() {
-    const hash = location.hash.slice(1) || '/login';
-    if (hash !== '/login' && !token) { navigate('/login'); return; }
-    const render = routes[hash] || routes['/status'];
-    document.getElementById('app').innerHTML = '';
-    render();
-}
-
-window.addEventListener('hashchange', router);
-
-// ─── API 封装 ────────────────────────────────────────
-async function api(method, path, body) {
-    const opts = { method, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } };
-    if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(API + path, opts);
-    if (res.status === 401) { token = null; localStorage.removeItem('token'); navigate('/login'); return null; }
-    return res.json();
-}
-
-// ─── 通用布局 ────────────────────────────────────────
-function layout(title, content) {
-    const app = document.getElementById('app');
-    app.innerHTML = `
-    <nav class="p-4 border-b border-slate-700/50 glass flex justify-between items-center sticky top-0 z-50">
-        <div class="flex items-center gap-6">
-            <h1 class="text-xl font-bold text-indigo-400 cursor-pointer" onclick="navigate('/status')">Trojan-Go</h1>
-            <a href="#/status" class="text-sm text-slate-400 hover:text-white transition">概览</a>
-            <a href="#/user" class="text-sm text-slate-400 hover:text-white transition">用户管理</a>
+const ServiceAdmin = {
+    timer: null,
+    render: async () => {
+        return `
+        <div class="header-bar"><h1>服务监控</h1></div>
+        <div class="log-controls">
+            <div class="btn-group-inline">
+                <button class="btn btn-green" onclick="handleService('start')">▶ 启动服务</button>
+                <button class="btn btn-red" onclick="handleService('stop')">■ 停止服务</button>
+                <button class="btn btn-amber" onclick="handleService('restart')">↻ 重载服务</button>
+            </div>
+            
+            <div style="width:16px"></div>
+            <select id="logLevel" class="select-custom" onchange="ServiceAdmin.pollNow()">
+                <option value="all">日志等级: 全部</option>
+                <option value="info">INFO</option>
+                <option value="warn">WARN</option>
+                <option value="error">ERROR</option>
+            </select>
+            <select id="logLines" class="select-custom" onchange="ServiceAdmin.pollNow()">
+                <option value="100">显示 100 行</option>
+                <option value="300" selected>显示 300 行</option>
+                <option value="500">显示 500 行</option>
+                <option value="1000">显示 1000 行</option>
+            </select>
+            <div style="flex:1"></div>
+            <label class="log-filter-label">
+                <input type="checkbox" id="autoScroll" checked> 自动跟随滚动
+            </label>
         </div>
-        <div class="flex items-center gap-4">
-            <span class="text-xs text-slate-500">${title}</span>
-            <button onclick="doRestart()" class="text-xs px-3 py-1 rounded bg-amber-700/30 text-amber-300 hover:bg-amber-700/50 transition">重启服务</button>
-            <button onclick="logout()" class="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 transition">退出</button>
-        </div>
-    </nav>
-    <main class="p-6 max-w-6xl mx-auto fade-in">${content}</main>`;
+        <div id="logTerminal" class="terminal shadow-lg">正在拉取系统日志...</div>
+        `;
+    },
+    afterRender: () => { ServiceAdmin.poll(); },
+    pollNow: () => { if (ServiceAdmin.timer) clearTimeout(ServiceAdmin.timer); ServiceAdmin.poll(); },
+    poll: async () => {
+        if (location.hash !== '#/service') return;
+        const lv = document.getElementById('logLevel')?.value || 'all';
+        const ln = document.getElementById('logLines')?.value || '300';
+        try {
+            const res = await fetch(`${API}/logs?level=${lv}&lines=${ln}`, { 
+                headers: { 'Authorization': 'Bearer ' + token } 
+            });
+            if (res.status === 200) {
+                const text = await res.text();
+                const el = document.getElementById('logTerminal');
+                if (el) {
+                    el.innerText = text;
+                    if (document.getElementById('autoScroll').checked) el.scrollTop = el.scrollHeight;
+                }
+            }
+        } catch(e){}
+        ServiceAdmin.timer = setTimeout(ServiceAdmin.poll, 2500);
+    }
+};
+
+async function handleService(action) {
+    const res = await api('POST', '/service', { action });
+    if (res && res.message) alert(res.message);
 }
 
-function logout() { token = null; localStorage.removeItem('token'); navigate('/login'); }
+const UserList = {
+    render: async () => {
+        const users = await api('GET', '/users');
+        if (!users) return '数据拉取中...';
+        currentUsers = users;
+        return renderUserTableHtml();
+    }
+};
 
-// ─── 页面：登录 ──────────────────────────────────────
-function renderLogin() {
-    const app = document.getElementById('app');
-    app.innerHTML = `
-    <div class="min-h-screen flex items-center justify-center">
-        <div class="glass rounded-2xl p-8 w-full max-w-sm fade-in">
-            <h2 class="text-2xl font-bold text-center mb-2 text-indigo-400">Trojan-Go</h2>
-            <p class="text-center text-slate-500 text-sm mb-6">管理面板登录</p>
-            <input id="pwd" type="password" placeholder="请输入管理密码"
-                class="w-full p-3 rounded-lg bg-slate-800 border border-slate-700 text-white mb-4 focus:outline-none focus:border-indigo-500 transition"
-                onkeydown="if(event.key==='Enter')doLogin()">
-            <button onclick="doLogin()" class="w-full p-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold transition">登 录</button>
-            <p id="loginErr" class="text-red-400 text-sm mt-3 text-center hidden"></p>
+function renderUserTableHtml() {
+    const filtered = currentUsers.filter(u => u.username.toLowerCase().includes(searchText.toLowerCase()));
+    return `
+    <div class="header-bar">
+        <h1>用户管理</h1>
+        <button class="btn btn-primary" onclick="showUserModal()">+ 新增接入用户</button>
+    </div>
+    
+    <div class="action-container">
+        <div class="search-wrapper">
+            <input type="text" id="userSearch" placeholder="搜索用户名..." value="${searchText}" oninput="updateSearch(this.value)">
         </div>
+        <div style="color:var(--text2); font-size:13px">共检索到 ${filtered.length} 个用户</div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>用户名</th>
+                    <th onclick="sortTable('upload')">上传流量 ↕</th>
+                    <th onclick="sortTable('download')">下载流量 ↕</th>
+                    <th onclick="sortTable('used')">总流量 (已用) ↕</th>
+                    <th>流量限制</th>
+                    <th>过期日期</th>
+                    <th>运行状态</th>
+                    <th style="text-align:right">管理操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${filtered.map(u => `
+                    <tr>
+                        <td><div style="font-weight:700; font-family:'Inter'">${u.username}</div><div style="font-size:11px; color:var(--text2); margin-top:4px">PWD: ${u.password}</div></td>
+                        <td style="color:var(--text2)">${fmtBytes(u.upload)}</td>
+                        <td style="color:var(--text2)">${fmtBytes(u.download)}</td>
+                        <td style="font-weight:600">${fmtBytes(u.used)}</td>
+                        <td>${u.quota === -1 ? '<span style="opacity:0.5">无限制</span>' : fmtBytes(u.quota)}</td>
+                        <td>${u.expiry_time ? u.expiry_time.slice(0,10) : '<span style="opacity:0.5">-</span>'}</td>
+                        <td><span class="badge ${u.status===0?'badge-green':'badge-red'}">${u.status===0?'运行中':'已停止'}</span></td>
+                        <td style="text-align:right">
+                            <div style="display:inline-flex; gap:10px">
+                                <button class="btn" onclick="shareUser('${u.username}', '${u.hash}')">💾 下发</button>
+                                <button class="btn btn-red" onclick="deleteUser(${u.id})">🗑 删除</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('')}
+                ${filtered.length === 0 ? '<tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text2)">没有匹配的用户</td></tr>' : ''}
+            </tbody>
+        </table>
     </div>`;
-    document.getElementById('pwd').focus();
+}
+
+function updateSearch(val) {
+    searchText = val;
+    document.querySelector('main').innerHTML = renderUserTableHtml();
+    document.getElementById('userSearch').focus();
+    const input = document.getElementById('userSearch');
+    input.setSelectionRange(val.length, val.length);
+}
+
+function sortTable(key) {
+    currentUsers.sort((a,b) => b[key] - a[key]);
+    document.querySelector('main').innerHTML = renderUserTableHtml();
+}
+
+const Login = {
+    render: () => `
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%; background: radial-gradient(circle at center, #1c212c 0%, #0b0e14 100%)">
+        <div class="card" style="width:400px;padding:48px; border-radius:24px">
+            <div style="text-align:center; margin-bottom:32px">
+                <h2 style="font-size:24px; margin-bottom:8px">管理身份验证</h2>
+                <div style="color:var(--text2); font-size:14px">请输入凭据以访问控制中心</div>
+            </div>
+            <div class="form-group"><label>账号</label><input id="lgUser" type="text" placeholder="Username" value="admin"></div>
+            <div class="form-group"><label>密钥</label><input id="lgPass" type="password" placeholder="Password" onkeyup="if(event.keyCode===13)doLogin()"></div>
+            <button class="btn btn-primary" style="width:100%; height:48px; justify-content:center; font-size:15px; margin-top:16px" onclick="doLogin()">进入管理系统</button>
+            <div id="lgErr" style="color:var(--red); font-size:13px; margin-top:20px; text-align:center"></div>
+        </div>
+    </div>`
+};
+
+const routes = { '/login': Login, '/dashboard': Dashboard, '/service': ServiceAdmin, '/users': UserList };
+
+async function navigate(path) { location.hash = '#' + path; }
+
+async function router() {
+    // 路由跳转前置检查超时
+    const loginTime = localStorage.getItem('login_time');
+    if (token && loginTime && (Date.now() - parseInt(loginTime) > 1800 * 1000)) {
+        logout(); return;
+    }
+
+    const path = location.hash.slice(1) || '/login';
+    const component = routes[path] || Dashboard;
+    if (!token && path !== '/login') { location.hash = '#/login'; return; }
+    const app = document.getElementById('app');
+    if (path === '/login') { app.innerHTML = component.render(); return; }
+
+    const sidebar = `
+    <aside>
+        <div class="sidebar-header"><span class="logo" id="navTitle" onclick="navigate('/dashboard')">Trojan-Go</span></div>
+        <div class="sidebar-menu">
+            <a class="menu-item ${path==='/dashboard'?'active':''}" onclick="navigate('/dashboard')">📊 系统概览</a>
+            <a class="menu-item ${path==='/service'?'active':''}" onclick="navigate('/service')">🖥 服务监控</a>
+            <a class="menu-item ${path==='/users'?'active':''}" onclick="navigate('/users')">👥 接入用户</a>
+            <a class="menu-item" onclick="showSettingsMenu()">⚙ 系统设置</a>
+        </div>
+        <div class="sidebar-footer">
+            <button class="btn" style="width:100%; border-color:var(--border)" onclick="logout()">➔ 系统注销</button>
+        </div>
+    </aside>`;
+
+    const content = await component.render();
+    app.innerHTML = sidebar + `<main class="fade-in">${content}</main>`;
+    if (component.afterRender) component.afterRender();
+    updateTitle();
 }
 
 async function doLogin() {
-    const pwd = document.getElementById('pwd').value;
-    const res = await fetch(API + '/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwd })
-    });
-    const data = await res.json();
-    if (data.token) {
-        token = data.token;
+    const u = document.getElementById('lgUser').value;
+    const p = document.getElementById('lgPass').value;
+    const res = await api('POST', '/login', { username: u, password: p });
+    if (res && res.token) {
+        token = res.token;
         localStorage.setItem('token', token);
-        navigate('/status');
-    } else {
-        const el = document.getElementById('loginErr');
-        el.textContent = '密码错误'; el.classList.remove('hidden');
-    }
+        localStorage.setItem('login_time', Date.now().toString());
+        location.hash = '#/dashboard';
+    } else { document.getElementById('lgErr').textContent = '登陆失败: 账号或密码不匹配'; }
 }
 
-// ─── 页面：状态概览 ──────────────────────────────────
-async function renderStatus() {
-    layout('系统概览', '<div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="cards">加载中...</div>');
-    const data = await api('GET', '/status');
-    if (!data) return;
-    document.getElementById('cards').innerHTML = `
-        <div class="p-6 rounded-xl glass"><p class="text-slate-400 text-sm">用户总数</p><h3 class="text-3xl font-bold mt-2">${data.user_count}</h3></div>
-        <div class="p-6 rounded-xl glass"><p class="text-slate-400 text-sm">服务状态</p><h3 class="text-3xl font-bold mt-2 text-green-400">运行中</h3></div>
-        <div class="p-6 rounded-xl glass"><p class="text-slate-400 text-sm">管理面板</p><h3 class="text-lg font-bold mt-2 text-indigo-400">443 端口复用</h3></div>`;
+function logout() { 
+    token = null; 
+    localStorage.removeItem('token'); 
+    localStorage.removeItem('login_time'); 
+    navigate('/login'); 
 }
 
-// ─── 页面：用户管理 ──────────────────────────────────
-async function renderUser() {
-    layout('用户管理', `
-    <div class="flex justify-between items-center mb-6">
-        <h2 class="text-lg font-semibold">用户列表</h2>
-        <button onclick="showAddUser()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm transition">+ 添加用户</button>
-    </div>
-    <div id="addUserForm" class="hidden glass rounded-xl p-4 mb-6">
-        <div class="flex gap-4 items-end">
-            <div class="flex-1"><label class="text-xs text-slate-400 block mb-1">密码</label>
-                <input id="newPwd" class="w-full p-2 rounded bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500"></div>
-            <button onclick="addUser()" class="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition">确认添加</button>
-            <button onclick="document.getElementById('addUserForm').classList.add('hidden')" class="px-4 py-2 bg-slate-700 rounded-lg text-sm transition">取消</button>
+async function updateTitle() {
+    const s = await api('GET','/settings'); if (!s) return;
+    const t = s.site_title || 'Trojan-Go'; document.title = t;
+    const el = document.getElementById('navTitle'); if (el) el.textContent = t;
+}
+
+function showModal(title, content, onOk, hideFooter = false) {
+    const existing = document.getElementById('modal-overlay'); if (existing) existing.remove();
+    const html = `
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header"><h2>${title}</h2><span style="font-size:24px; cursor:pointer; opacity:0.5" onclick="closeModal()">✕</span></div>
+            <div class="modal-body">${content}</div>
+            ${hideFooter ? '' : `
+            <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:32px">
+                <button class="btn" onclick="closeModal()">取消操作</button>
+                <button class="btn btn-primary" id="modal-ok">确认提交</button>
+            </div>`}
         </div>
-    </div>
-    <div class="glass rounded-xl overflow-hidden">
-        <table class="w-full text-left">
-            <thead class="bg-slate-800/50 text-slate-400 uppercase text-xs">
-                <tr><th class="p-4">ID</th><th class="p-4">密码</th><th class="p-4">已用流量</th><th class="p-4">状态</th><th class="p-4">操作</th></tr>
-            </thead>
-            <tbody id="userList"><tr><td class="p-4" colspan="5">加载中...</td></tr></tbody>
-        </table>
-    </div>`);
-    const users = await api('GET', '/users');
-    if (!users) return;
-    const tbody = document.getElementById('userList');
-    if (users.length === 0) {
-        tbody.innerHTML = '<tr><td class="p-4 text-slate-500" colspan="5">暂无用户，点击右上角添加。</td></tr>';
-        return;
-    }
-    tbody.innerHTML = users.map(u => `
-        <tr class="border-t border-slate-800 hover:bg-slate-800/30 transition">
-            <td class="p-4 text-slate-500">${u.ID}</td>
-            <td class="p-4 font-mono text-indigo-300">${u.password || '-'}</td>
-            <td class="p-4">${(u.used / 1024 / 1024).toFixed(2)} MB</td>
-            <td class="p-4"><span class="px-2 py-1 ${u.status === 0 ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'} rounded text-xs">${u.status === 0 ? '正常' : '禁用'}</span></td>
-            <td class="p-4"><button onclick="delUser(${u.ID})" class="text-xs text-red-400 hover:text-red-300 transition">删除</button></td>
-        </tr>`).join('');
-}
-
-function showAddUser() { document.getElementById('addUserForm').classList.remove('hidden'); document.getElementById('newPwd').focus(); }
-
-async function addUser() {
-    const pwd = document.getElementById('newPwd').value;
-    if (!pwd) return;
-    await api('POST', '/users', { password: pwd });
-    renderUser();
-}
-
-async function delUser(id) {
-    if (!confirm('确认删除该用户？')) return;
-    await api('DELETE', '/users/' + id);
-    renderUser();
-}
-
-// ─── 重启与自动重连 ──────────────────────────────────
-async function doRestart() {
-    if (!confirm('确认重启 trojan-go 服务？页面将自动重连。')) return;
-    // 发送重启指令（服务端会调用 systemctl restart）
-    try { await api('POST', '/restart'); } catch(e) {}
-
-    // 进入重连等待
-    const app = document.getElementById('app');
-    app.innerHTML = `
-    <div class="min-h-screen flex flex-col items-center justify-center gap-4">
-        <div class="spinner"></div>
-        <p class="text-slate-400">正在重启服务，请稍候...</p>
-        <p class="text-slate-600 text-xs" id="reconnTimer">0s</p>
     </div>`;
-
-    let elapsed = 0;
-    const poll = setInterval(async () => {
-        elapsed++;
-        const el = document.getElementById('reconnTimer');
-        if (el) el.textContent = elapsed + 's';
-        try {
-            const res = await fetch(API + '/status', { headers: { 'Authorization': 'Bearer ' + token } });
-            if (res.ok) { clearInterval(poll); navigate('/status'); }
-        } catch(e) {}
-    }, 1000);
+    document.body.insertAdjacentHTML('beforeend', html);
+    setTimeout(() => document.getElementById('modal-overlay').classList.add('active'), 10);
+    if (!hideFooter) document.getElementById('modal-ok').onclick = onOk;
 }
 
-// ─── 启动 ────────────────────────────────────────────
-if (!location.hash) location.hash = '#/login';
+function closeModal() {
+    const el = document.getElementById('modal-overlay');
+    if(el) { el.classList.remove('active'); setTimeout(() => el.remove(), 250); }
+}
+
+function showSettingsMenu() {
+    showModal('系统配置中心', `
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:0">
+            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showEditTitle()"><span>🏷️</span> 修改站点标题</button>
+            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showChangePwd()"><span>🔑</span> 修改管理凭据</button>
+            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showEditRules()"><span>📜</span> 编辑分流规则</button>
+            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showSysSettings()"><span>📅</span> 流量重置周期</button>
+            <button class="btn" style="padding:16px; grid-column: span 2" onclick="doBackup()">📂 数据导入导出 / 备份</button>
+        </div>
+    `, null, true);
+}
+
+async function showEditTitle() {
+    const s = await api('GET','/settings');
+    showModal('站点全局标题', `<div class="form-group"><label>新标题</label><input id="mSiteTitle" type="text" value="${s.site_title||''}"></div>`, async () => {
+        await api('POST','/settings', {site_title: document.getElementById('mSiteTitle').value});
+        closeModal(); updateTitle();
+    });
+}
+async function showChangePwd() {
+    const s = await api('GET','/settings');
+    showModal('管理员权限设置', `
+        <div class="form-group"><label>系统账号</label><input id="mAdmUser" type="text" value="${s.admin_username||''}"></div>
+        <div class="form-group"><label>新管理密码 (不改请留空)</label><input id="mAdmPass" type="password"></div>
+    `, async () => {
+        const u = document.getElementById('mAdmUser').value;
+        const p = document.getElementById('mAdmPass').value;
+        await api('POST','/settings/admin', {username:u, password:p});
+        alert('修改成功，请重新登录'); logout();
+    });
+}
+async function showSysSettings() {
+    const s = await api('GET','/settings');
+    showModal('流量自动重置', `
+        <div class="form-group"><label>每月重置日 (1-28, 0表示手动重置)</label>
+        <input id="mResetDay" type="number" min="0" max="28" value="${s.traffic_reset_day||0}"></div>
+    `, async () => {
+        await api('POST','/settings', {traffic_reset_day: document.getElementById('mResetDay').value});
+        closeModal();
+    });
+}
+async function showEditRules() {
+    const s = await api('GET','/settings');
+    const fullYaml = `# rules:\n${s.clash_rules||''}\n\n# rule-providers:\n${s.clash_rule_providers||''}`;
+    showModal('Clash 订阅规则模板', `
+        <div style="font-size:12px; color:var(--text2); margin-bottom:12px">此处配置将直接影响下发的 Clash 订阅文件结构。</div>
+        <textarea id="mRulesEditor" class="editor" spellcheck="false" placeholder="YAML Format...">${fullYaml}</textarea>
+    `, async () => {
+        const val = document.getElementById('mRulesEditor').value;
+        const parts = val.split('# rule-providers:');
+        const rules = parts[0].replace('# rules:', '').trim();
+        const providers = parts[1] ? parts[1].trim() : '';
+        await api('POST','/settings', {clash_rules: rules, clash_rule_providers: providers});
+        closeModal();
+    });
+}
+
+function doBackup() {
+    showModal('快照管理', `
+        <div style="display:flex; flex-direction:column; gap:16px; padding:8px">
+            <button class="btn btn-primary" style="height:48px; justify-content:center" onclick="window.location.href='${API}/settings/backup?token=${token}'">📥 导出所有用户配置 (JSON)</button>
+            <button class="btn" style="height:48px; border-color:var(--border); justify-content:center" onclick="document.getElementById('restoreFile').click()">📤 恢复本地备份文件</button>
+        </div>
+    `, null, true);
+}
+async function doRestore(input) {
+    if (!input.files[0]) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            const res = await api('POST','/settings/restore', data); alert(res.message); router();
+        } catch(err) { alert('导入失败: 文件格式不合法'); }
+    };
+    reader.readAsText(input.files[0]);
+}
+
+async function deleteUser(id) { if (confirm('确定要移除该用户吗？')) { await api('DELETE', '/users/' + id); router(); } }
+
+function showUserModal() {
+    showModal('接入新成员', `
+        <div class="form-group"><label>备注名称 / 用户名</label><input id="uName" type="text" placeholder="Alias"></div>
+        <div class="form-group"><label>连接密码</label><div style="display:flex;gap:8px"><input id="uPass" type="text"><button class="btn" onclick="document.getElementById('uPass').value=randStr(16)">自动生成</button></div></div>
+        <div class="form-group"><label>总流量额度 (GB, -1为无限制)</label><input id="uQuota" type="number" value="-1"></div>
+        <div class="form-group"><label>过期日期 (留空为永不过期)</label><input id="uExpiry" type="date"></div>
+    `, async () => {
+        const u = {
+            username: document.getElementById('uName').value,
+            password: document.getElementById('uPass').value,
+            quota: parseInt(document.getElementById('uQuota').value) * 1024 * 1024 * 1024,
+            expiry_time: document.getElementById('uExpiry').value ? document.getElementById('uExpiry').value + " 23:59:59" : null
+        };
+        if (u.quota < 0) u.quota = -1;
+        if (await api('POST', '/users', u)) { closeModal(); router(); }
+    });
+}
+
+function shareUser(name, hash) {
+    const url = `trojan://${hash}@${location.hostname}:443?sni=${location.hostname}#${name}`;
+    const sub = `${location.origin}/sub?token=${hash}`;
+    showModal('快速接入信息', `
+        <div class="form-group"><label>通用 Trojan 链接 (直连专用)</label><input readonly id="shLink" value="${url}"><button class="btn" style="position:absolute; right:42px; margin-top:-38px" onclick="copyText('${url}')">复制</button></div>
+        <div class="form-group"><label>Clash 订阅地址 (分流必备)</label><input readonly id="shSub" value="${sub}"><button class="btn" style="position:absolute; right:42px; margin-top:-38px" onclick="copyText('${sub}')">复制</button></div>
+        <button class="btn btn-primary" style="width:100%; height:44px; justify-content:center" onclick="window.location.href='clash://install-config?url=' + encodeURIComponent('${sub}')">🚀 一键拉起 Clash 导入订阅</button>
+    `, null, true);
+}
+
+function fmtBytes(b) {
+    if (b <= 0) return '0 B';
+    const u = ['B','KB','MB','GB','TB'];
+    const i = Math.floor(Math.log(b) / Math.log(1024));
+    return (b / Math.pow(1024, i)).toFixed(2) + ' ' + u[i];
+}
+function randStr(len) {
+    const c = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return Array.from({length: len}, () => c[Math.floor(Math.random() * c.length)]).join('');
+}
+function copyText(t) { navigator.clipboard.writeText(t); alert('已复制'); }
+
+window.onhashchange = router;
+if(!location.hash) location.hash = '#/dashboard';
 router();
 </script>
 </body>

@@ -57,6 +57,9 @@ func (r *Redirector) worker() {
 				outboundConn, err := redirection.Dial(redirection.RedirectTo)
 				if err != nil {
 					log.Error(common.NewError("failed to redirect to target address").Base(err))
+					// 为了防止由于回落端口(如 80)死机导致浏览器爆出 ERR_EMPTY_RESPONSE
+					// 主动返回一个 400 Bad Request，随后断开。
+					redirection.InboundConn.Write([]byte("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\nTrojan-Go: Fallback server unreachable.\n"))
 					return
 				}
 				defer outboundConn.Close()

@@ -1,19 +1,29 @@
+# =================================================================
+# Trojan-Go 客户端示例配置文件
+# =================================================================
+
 run_type: client
 local_addr: 127.0.0.1
-local_port: 1080
-remote_addr: your_server
+local_port: 1080       # 本地 SOCKS5 监听端口
+
+# 远程服务器配置
+remote_addr: your-server-ip-or-domain
 remote_port: 443
 password:
-    - your_password
+  - "your_user_password"
+
+# TLS 配置
 ssl:
-    sni: your-domain-name.com
+  sni: your-domain.com  # 必须与服务器证书域名一致
+  verify_hostname: true
+  cert_check_rate: 3600
+
+# 多路复用 (需与服务端一致)
 mux:
-    enabled: true
-router:
-    enabled: true
-    bypass: ['geoip:cn', 'geoip:private', 'geosite:cn', 'geosite:private']
-    block: ['geosite:category-ads']
-    proxy: ['geosite:geolocation-!cn']
-    default_policy: proxy
-    geoip: /usr/share/trojan-go/geoip.dat
-    geosite: /usr/share/trojan-go/geosite.dat
+  enabled: true
+
+# 如果服务端开启了 Websocket 混淆，请取消注释下方内容
+# websocket:
+#   enabled: true
+#   path: "/trojan-ws"
+#   hostname: your-domain.com

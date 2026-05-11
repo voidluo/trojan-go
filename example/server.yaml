@@ -1,17 +1,43 @@
+# =================================================================
+# Trojan-Go 生产级“443 + 80”复用配置示例 (专业模式)
+# =================================================================
+# 建议部署路径: /etc/trojan-go/config.yaml
+
 run_type: server
 local_addr: 0.0.0.0
-local_port: 443
-remote_addr: 127.0.0.1
-remote_port: 80
-password:
-  - your_password
+local_port: 443  # 主服务端口，处理 TLS 流量
+
+# -----------------------------------------------------------------
+# [核心] TLS / SSL 配置
+# -----------------------------------------------------------------
 ssl:
-  cert: your_cert.crt
-  key: your_key.key
-  sni: your-domain-name.com
+  cert: /etc/trojan-go/tls/cert.pem
+  key: /etc/trojan-go/tls/key.pem
+  sni: example.com
+  
+  # [回落机制] 
+  # 当 443 端口检测到非 Trojan 流量（如浏览器直接访问）时，
+  # 会自动将流量转发给本地的 80 端口处理。
+  # 这种方式实现了“完美伪装”，外部看来就是一个普通的 Web 服务器。
+  fallback_addr: 127.0.0.1
+  fallback_port: 80
+  plain_http_response: /etc/trojan-go/index.html
+
+# 管理面板（复用 443 端口提供 WebUI 数据与静态文件）
+# 启用此项后，无需前置 Nginx 亦可直接在浏览器中访问可视化的后台管理系统。
+admin:
+  enabled: true
+  username: "admin"
+  password: "admin_password_123"
+  db: "/etc/trojan-go/trojan-go.db"
+  path: "/"
+
+# -----------------------------------------------------------------
+# [路由与性能]
+# -----------------------------------------------------------------
+mux:
+  enabled: true
 router:
   enabled: true
   block:
-    _ 'geoip:private'
-  geoip: /usr/share/trojan-go/geoip.dat
-  geosite: /usr/share/trojan-go/geosite.dat
+    - "geoip:private"

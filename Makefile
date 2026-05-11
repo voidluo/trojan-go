@@ -27,10 +27,15 @@ trojan:
 
 # 打包发布 (含二进制文件、示例配置和路由规则)
 release: all
+	mkdir -p $(BUILD_DIR)/linux-amd64
 	cp example_config.yaml $(BUILD_DIR)/linux-amd64/config.yaml.example
 	cp routes.json $(BUILD_DIR)/linux-amd64/routes.json.example
-	cd $(BUILD_DIR)/linux-amd64 && zip -r ../trojan-go-super-suite-linux.zip .
-	@echo "发布包已生成: $(BUILD_DIR)/trojan-go-super-suite-linux.zip"
+	# 打包为 zip 文件
+	cd $(BUILD_DIR)/linux-amd64 && zip -r ../trojan-go-linux-amd64.zip .
+	@echo "发布包已生成: $(BUILD_DIR)/trojan-go-linux-amd64.zip"
+
+# 一键构建并打包
+dist: clean release
 
 # 安装到系统
 install: all

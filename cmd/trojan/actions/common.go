@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge/http01"
@@ -40,7 +41,7 @@ func getStdin(promptCN, promptEN string) string {
 }
 
 // obtainCert 内部函数：执行证书申请，返回证书内容和私钥内容
-func obtainCert(domain, email string) (*certificate.Resource, error) {
+func obtainCert(domain, email, caURL string) (*certificate.Resource, error) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
@@ -48,7 +49,11 @@ func obtainCert(domain, email string) (*certificate.Resource, error) {
 
 	user := &legoUser{Email: email, key: privateKey}
 	config := lego.NewConfig(user)
-	config.CADirURL = lego.LEDirectoryProduction
+	if caURL != "" {
+		config.CADirURL = caURL
+	} else {
+		config.CADirURL = lego.LEDirectoryProduction
+	}
 
 	client, err := lego.NewClient(config)
 	if err != nil {
@@ -66,8 +71,23 @@ func obtainCert(domain, email string) (*certificate.Resource, error) {
 	}
 	user.Registration = reg
 
-	return client.Certificate.Obtain(certificate.ObtainRequest{
-		Domains: []string{domain},
-		Bundle:  true,
-	})
+	// 增加重试逻辑，应对 Let's Encrypt 的 404 同步延迟 bug
+	var res *certificate.Resource
+	for i := 1; i <= 3; i++ {
+		res, err = client.Certificate.Obtain(certificate.ObtainRequest{
+			Domains: []string{domain},
+			Bundle:  true,
+		})
+		if err == nil {
+			return res, nil
+		}
+		// 如果是 404 错误，则等待后重试
+		if strings.Contains(err.Error(), "404") {
+			fmt.Printf(" [警告] ACME 服务器返回 404 (同步延迟)，正在进行第 %d 次重试...\n", i)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		break
+	}
+	return nil, err
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/voidluo/trojan-go/api"
 	"github.com/voidluo/trojan-go/common"
 	"github.com/voidluo/trojan-go/config"
+	"github.com/voidluo/trojan-go/internal/webserver"
 	"github.com/voidluo/trojan-go/log"
 	"github.com/voidluo/trojan-go/redirector"
 	"github.com/voidluo/trojan-go/statistic"
@@ -149,10 +150,14 @@ func (s *Server) acceptLoop() {
 				rewindConn.Rewind()
 				rewindConn.StopBuffering()
 				log.Warn(common.NewError("connection with invalid trojan header from " + rewindConn.RemoteAddr().String()).Base(err))
-				s.redir.Redirect(&redirector.Redirection{
-					RedirectTo:  s.redirAddr,
-					InboundConn: rewindConn,
-				})
+				if s.redirAddr.Port != 0 {
+					s.redir.Redirect(&redirector.Redirection{
+						RedirectTo:  s.redirAddr,
+						InboundConn: rewindConn,
+					})
+				} else {
+					rewindConn.Close()
+				}
 				return
 			}
 
@@ -229,6 +234,10 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 		return nil, common.NewError("trojan failed to create authenticator")
 	}
 
+	// 尝试从 underlay 链中获取 AdminServer，将数据库用户同步到认证器
+	// underlay 可能是 TLS Server（直接），也可能是 WebSocket Server（间接）
+	syncAdminAuth(underlay, auth)
+
 	if cfg.API.Enabled {
 		go api.RunService(ctx, Name+"_SERVER", auth)
 	}
@@ -246,7 +255,7 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 		redir:      redirector.NewRedirector(ctx),
 	}
 
-	if !cfg.DisableHTTPCheck {
+	if !cfg.DisableHTTPCheck && cfg.RemotePort > 0 {
 		redirConn, err := net.Dial("tcp", redirAddr.String())
 		if err != nil {
 			cancel()
@@ -258,4 +267,31 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 	go s.acceptLoop()
 	log.Debug("trojan server created")
 	return s, nil
+}
+
+// adminServerProvider 定义了提供 AdminServer 访问能力的接口。
+// TLS Server 实现了此接口。
+type adminServerProvider interface {
+	GetAdminServer() *webserver.AdminServer
+}
+
+// underlayProvider 定义了获取下层 Server 的接口，用于穿透 WebSocket 等中间层。
+type underlayProvider interface {
+	GetUnderlay() tunnel.Server
+}
+
+// syncAdminAuth 尝试从 underlay 链中找到 AdminServer 并绑定认证器。
+func syncAdminAuth(underlay tunnel.Server, auth statistic.Authenticator) {
+	// 直接检查 underlay 是否提供 AdminServer（TLS Server）
+	if p, ok := underlay.(adminServerProvider); ok {
+		if admin := p.GetAdminServer(); admin != nil {
+			admin.SetAuth(auth)
+			log.Info("admin server auth sync: bound to proxy authenticator")
+			return
+		}
+	}
+	// 如果 underlay 是中间层（如 WebSocket），尝试穿透获取下层
+	if p, ok := underlay.(underlayProvider); ok {
+		syncAdminAuth(p.GetUnderlay(), auth)
+	}
 }

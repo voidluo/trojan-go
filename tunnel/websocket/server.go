@@ -49,16 +49,25 @@ func (s *Server) Close() error {
 	return s.underlay.Close()
 }
 
+// GetUnderlay 返回下层 Server，供上层穿透中间层获取 TLS Server。
+func (s *Server) GetUnderlay() tunnel.Server {
+	return s.underlay
+}
+
 func (s *Server) AcceptConn(tunnel.Tunnel) (tunnel.Conn, error) {
 	conn, err := s.underlay.AcceptConn(&Tunnel{})
 	if err != nil {
 		return nil, common.NewError("websocket failed to accept connection from underlying server")
 	}
 	if !s.enabled {
-		s.redir.Redirect(&redirector.Redirection{
-			InboundConn: conn,
-			RedirectTo:  s.redirAddr,
-		})
+		if !strings.HasSuffix(s.redirAddr.String(), ":0") {
+			s.redir.Redirect(&redirector.Redirection{
+				InboundConn: conn,
+				RedirectTo:  s.redirAddr,
+			})
+		} else {
+			conn.Close()
+		}
 		return nil, common.NewError("websocket is disabled. redirecting http request from " + conn.RemoteAddr().String())
 	}
 	rewindConn := common.NewRewindConn(conn)
@@ -70,20 +79,28 @@ func (s *Server) AcceptConn(tunnel.Tunnel) (tunnel.Conn, error) {
 		log.Debug("invalid http request")
 		rewindConn.Rewind()
 		rewindConn.StopBuffering()
-		s.redir.Redirect(&redirector.Redirection{
-			InboundConn: rewindConn,
-			RedirectTo:  s.redirAddr,
-		})
+		if !strings.HasSuffix(s.redirAddr.String(), ":0") {
+			s.redir.Redirect(&redirector.Redirection{
+				InboundConn: rewindConn,
+				RedirectTo:  s.redirAddr,
+			})
+		} else {
+			rewindConn.Close()
+		}
 		return nil, common.NewError("not a valid http request: " + conn.RemoteAddr().String()).Base(err)
 	}
 	if strings.ToLower(req.Header.Get("Upgrade")) != "websocket" || req.URL.Path != s.path {
 		log.Debug("invalid http websocket handshake request")
 		rewindConn.Rewind()
 		rewindConn.StopBuffering()
-		s.redir.Redirect(&redirector.Redirection{
-			InboundConn: rewindConn,
-			RedirectTo:  s.redirAddr,
-		})
+		if !strings.HasSuffix(s.redirAddr.String(), ":0") {
+			s.redir.Redirect(&redirector.Redirection{
+				InboundConn: rewindConn,
+				RedirectTo:  s.redirAddr,
+			})
+		} else {
+			rewindConn.Close()
+		}
 		return nil, common.NewError("not a valid websocket handshake request: " + conn.RemoteAddr().String()).Base(err)
 	}
 
@@ -151,6 +168,11 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 	cfg := config.FromContext(ctx, Name).(*Config)
 	if cfg.Websocket.Enabled {
 		if !strings.HasPrefix(cfg.Websocket.Path, "/") {
+			oldPath := cfg.Websocket.Path
+			cfg.Websocket.Path = "/" + cfg.Websocket.Path
+			log.Infof("自动修正 WebSocket 路径: %q -> %q", oldPath, cfg.Websocket.Path)
+		}
+		if !strings.HasPrefix(cfg.Websocket.Path, "/") {
 			return nil, common.NewError("websocket path must start with \"/\"")
 		}
 	}
@@ -160,7 +182,6 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 	}
 	if cfg.RemotePort == 0 {
 		log.Warn("empty websocket redirection port")
-		cfg.RemotePort = 80
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	log.Debug("websocket server created")

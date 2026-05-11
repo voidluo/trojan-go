@@ -5,40 +5,52 @@ import (
 	"os/exec"
 )
 
-const serviceName = "trojan-go"
+var services = []string{"trojan-go", "trojan-web"}
 
-func runSystemctl(cmd string) {
-	out, err := exec.Command("systemctl", cmd, serviceName).CombinedOutput()
+func runSystemctl(cmd string, svc string) {
+	out, err := exec.Command("systemctl", cmd, svc).CombinedOutput()
 	if err != nil {
-		fmt.Printf("\033[31m操作失败: %v\033[0m\n", err)
+		fmt.Printf("\033[31m%s 操作失败 (%s): %v\033[0m\n", svc, cmd, err)
 	}
 	fmt.Println(string(out))
 }
 
 // TrojanStart 启动服务
 func TrojanStart() {
-	fmt.Printf("正在启动 %s...\n", serviceName)
-	runSystemctl("start")
+	for _, svc := range services {
+		fmt.Printf("正在启动 %s...\n", svc)
+		runSystemctl("start", svc)
+	}
+	fmt.Println()
+	TrojanStatus()
 }
 
 // TrojanStop 停止服务
 func TrojanStop() {
-	fmt.Printf("正在停止 %s...\n", serviceName)
-	runSystemctl("stop")
+	for _, svc := range services {
+		fmt.Printf("正在停止 %s...\n", svc)
+		runSystemctl("stop", svc)
+	}
+	fmt.Println()
+	TrojanStatus()
 }
 
 // TrojanRestart 重启服务
 func TrojanRestart() {
-	fmt.Printf("正在重启 %s...\n", serviceName)
-	runSystemctl("restart")
+	for _, svc := range services {
+		fmt.Printf("正在重启 %s...\n", svc)
+		runSystemctl("restart", svc)
+	}
+	fmt.Println()
+	TrojanStatus()
 }
 
 // TrojanStatus 查看服务状态
 func TrojanStatus() {
-	fmt.Printf("[ %s 服务状态 ]\n\n", serviceName)
-	out, err := exec.Command("systemctl", "status", serviceName, "--no-pager", "-l").CombinedOutput()
-	if err != nil {
-		fmt.Printf("状态查询失败: %v\n", err)
+	for _, svc := range services {
+		fmt.Printf("[ %s 服务状态 ]\n\n", svc)
+		out, _ := exec.Command("systemctl", "status", svc, "--no-pager", "-l").CombinedOutput()
+		fmt.Println(string(out))
+		fmt.Println("--------------------------------------------------")
 	}
-	fmt.Println(string(out))
 }

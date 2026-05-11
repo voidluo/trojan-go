@@ -27,6 +27,7 @@ import (
 	"github.com/voidluo/trojan-go/tunnel/tls/fingerprint"
 	"github.com/voidluo/trojan-go/tunnel/transport"
 	"github.com/voidluo/trojan-go/tunnel/websocket"
+	"github.com/voidluo/trojan-go/tunnel/mux"
 )
 
 // Server is a tls server
@@ -63,6 +64,12 @@ func (s *Server) Close() error {
 	return s.underlay.Close()
 }
 
+// GetAdminServer 返回管理面板服务器实例（如果已启用），
+// 供上层（如 Trojan 协议层）绑定认证器。
+func (s *Server) GetAdminServer() *webserver.AdminServer {
+	return s.adminServer
+}
+
 func isDomainNameMatched(pattern string, domainName string) bool {
 	if strings.HasPrefix(pattern, "*.") {
 		suffix := pattern[2:]
@@ -88,8 +95,9 @@ func (s *Server) acceptLoop() {
 				CipherSuites:             s.cipherSuite,
 				PreferServerCipherSuites: s.PreferServerCipher,
 				SessionTicketsDisabled:   !s.sessionTicket,
-				NextProtos:               s.alpn,
+				NextProtos:               []string{"http/1.1"}, // 强制回退到 http/1.1 以匹配本地管理后台的解析能力
 				KeyLogWriter:             s.keyLogger,
+				Certificates:             s.keyPair, // 注入默认证书作为绕过 SNI 匹配的兜底
 				GetCertificate: func(hello *stdtls.ClientHelloInfo) (*stdtls.Certificate, error) {
 					s.keyPairLock.RLock()
 					defer s.keyPairLock.RUnlock()
@@ -106,7 +114,8 @@ func (s *Server) acceptLoop() {
 						}
 					}
 					if s.verifySNI && !matched {
-						return nil, common.NewError("sni mismatched: " + hello.ServerName + ", expected: " + s.sni)
+						// 记录不匹配日志但不再返回 nil，而是返回默认证书修正协议错误
+						log.Trace("sni mismatched: " + hello.ServerName + ", providing default certificate")
 					}
 					return &s.keyPair[0], nil
 				},
@@ -115,36 +124,32 @@ func (s *Server) acceptLoop() {
 			// ------------------------ WAR ZONE ----------------------------
 
 			handshakeRewindConn := common.NewRewindConn(conn)
-			handshakeRewindConn.SetBufferSize(2048)
+			handshakeRewindConn.SetBufferSize(4096) // 稍微增大缓冲区以兼容复杂的 ClientHello
 
 			tlsConn := stdtls.Server(handshakeRewindConn, tlsConfig)
 			err = tlsConn.Handshake()
-			handshakeRewindConn.StopBuffering()
 
 			if err != nil {
-				if strings.Contains(err.Error(), "first record does not look like a TLS handshake") {
-					// not a valid tls client hello
-					handshakeRewindConn.Rewind()
-					log.Error(common.NewError("failed to perform tls handshake with " + tlsConn.RemoteAddr().String() + ", redirecting").Base(err))
-					switch {
-					case s.fallbackAddress != nil:
-						s.redir.Redirect(&redirector.Redirection{
-							InboundConn: handshakeRewindConn,
-							RedirectTo:  s.fallbackAddress,
-						})
-					case s.httpResp != nil:
-						handshakeRewindConn.Write(s.httpResp)
-						handshakeRewindConn.Close()
-					default:
-						handshakeRewindConn.Close()
-					}
-				} else {
-					// in other cases, simply close it
-					tlsConn.Close()
-					log.Error(common.NewError("tls handshake failed").Base(err))
+				// 核心回归：无论是“非 TLS 流量”还是“TLS 协商失败”，无条件回落
+				handshakeRewindConn.Rewind()
+				log.Error(common.NewError("failed to perform tls handshake with " + tlsConn.RemoteAddr().String() + ", redirecting").Base(err))
+				switch {
+				case s.fallbackAddress != nil:
+					s.redir.Redirect(&redirector.Redirection{
+						InboundConn: handshakeRewindConn,
+						RedirectTo:  s.fallbackAddress,
+					})
+				case s.httpResp != nil:
+					handshakeRewindConn.Write(s.httpResp)
+					handshakeRewindConn.Close()
+				default:
+					handshakeRewindConn.Close()
 				}
 				return
 			}
+			
+			// 握手结束后，必须停止 TLS 握手层缓冲以防内存泄露
+			handshakeRewindConn.StopBuffering()
 
 			log.Info("tls connection from", conn.RemoteAddr())
 			state := tlsConn.ConnectionState()
@@ -156,20 +161,36 @@ func (s *Server) acceptLoop() {
 			r := bufio.NewReader(rewindConn)
 			httpReq, err := http.ReadRequest(r)
 			rewindConn.Rewind()
+			// HTTP 嗅探后也必须停止缓冲，否则后续 Web 面板数据会塞满内存
 			rewindConn.StopBuffering()
+			
 			if err != nil {
 				// this is not a http request. pass it to trojan protocol layer for further inspection
 				s.connChan <- &transport.Conn{
 					Conn: rewindConn,
 				}
 			} else {
+				if s.adminServer != nil && strings.HasPrefix(httpReq.URL.Path, s.adminPath) {
+					log.Debug("incoming http request, routing to admin panel")
+					s.adminServer.ServeConn(rewindConn)
+					return
+				}
 				if atomic.LoadInt32(&s.nextHTTP) != 1 {
 					// there is no websocket layer waiting for connections, redirect it
-					log.Error("incoming http request, but no websocket server is listening")
-					s.redir.Redirect(&redirector.Redirection{
-						InboundConn: rewindConn,
-						RedirectTo:  s.fallbackAddress,
-					})
+					if s.fallbackAddress != nil {
+						log.Error("incoming http request, but no websocket server is listening, redirecting")
+						s.redir.Redirect(&redirector.Redirection{
+							InboundConn: rewindConn,
+							RedirectTo:  s.fallbackAddress,
+						})
+					} else if s.httpResp != nil {
+						log.Debug("incoming http request, handling with plain http response")
+						rewindConn.Write(s.httpResp)
+						rewindConn.Close()
+					} else {
+						log.Error("incoming http request, but no websocket server is listening and no fallback")
+						rewindConn.Close()
+					}
 					return
 				}
 				// this is a http request, pass it to websocket protocol layer
@@ -305,9 +326,10 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 		fallbackAddress = tunnel.NewAddressFromHostPort("tcp", cfg.TLS.FallbackHost, cfg.TLS.FallbackPort)
 		fallbackConn, err := net.Dial("tcp", fallbackAddress.String())
 		if err != nil {
-			return nil, common.NewError("invalid fallback address").Base(err)
+			log.Warn(common.NewError("fallback target is unreachable at startup, but proceeding anyway").Base(err))
+		} else {
+			fallbackConn.Close()
 		}
-		fallbackConn.Close()
 	} else {
 		log.Warn("empty tls fallback port")
 		if cfg.TLS.HTTPResponseFileName != "" {
@@ -366,9 +388,22 @@ func NewServer(ctx context.Context, underlay tunnel.Server) (*Server, error) {
 		if err != nil {
 			log.Warn("admin panel: failed to init db:", err)
 		} else {
-			server.adminServer = webserver.New(db, cfg.Admin.Password, cfg.Admin.Path, cfg.Admin.Port)
+			wsEnabled := false
+			wsPath := "/"
+			if wsCfgAny := config.FromContext(ctx, websocket.Name); wsCfgAny != nil {
+				wsCfg := wsCfgAny.(*websocket.Config)
+				wsEnabled = wsCfg.Websocket.Enabled
+				wsPath = wsCfg.Websocket.Path
+			}
+			muxEnabled := false
+			if muxCfgAny := config.FromContext(ctx, mux.Name); muxCfgAny != nil {
+				muxCfg := muxCfgAny.(*mux.Config)
+				muxEnabled = muxCfg.Mux.Enabled
+			}
+
+			server.adminServer = webserver.New(db, cfg.Admin.Username, cfg.Admin.Password, cfg.Admin.Path, cfg.Admin.Port, wsEnabled, wsPath, muxEnabled)
 			server.adminPath = cfg.Admin.Path
-			log.Infof("admin panel enabled on https://[domain]%s (password: %s)", cfg.Admin.Path, cfg.Admin.Password)
+			log.Infof("admin panel enabled on https://[domain]%s (user: %s)", cfg.Admin.Path, cfg.Admin.Username)
 		}
 	}
 

@@ -15,6 +15,7 @@ type Config struct {
 // AdminConfig 管理面板配置（复用 443 端口和证书，无需额外端口）
 type AdminConfig struct {
 	Enabled  bool   `json:"enabled" yaml:"enabled"`
+	Username string `json:"username" yaml:"username"` // Web 登录用户名，默认 admin
 	Password string `json:"password" yaml:"password"` // Web 登录密码，默认 trojan@123
 	Path     string `json:"path" yaml:"path"`         // 管理面板挂载路径，默认 /
 	DbPath   string `json:"db" yaml:"db"`             // Sqlite 数据库路径，默认 /etc/trojan-go/trojan-go.db
@@ -55,6 +56,7 @@ func init() {
 				ALPN:           []string{"http/1.1"},
 			},
 			Admin: AdminConfig{
+				Username: "admin",
 				Password: "trojan@123",
 				Path:     "/",
 				DbPath:   "/etc/trojan-go/trojan-go.db",

@@ -51,12 +51,11 @@ type Menu struct {
 // Run 进入并运行菜单（阻塞，直到 ESC 退出）
 // 返回 true 表示需要退出整个程序
 func (m *Menu) Run() bool {
+	clearScreen() // 进入菜单时清一次屏
 	for {
-		clearScreen()
 		m.render()
 
 		ch := readKey()
-
 		if ch == keyESC {
 			// 若已是根菜单，退出程序
 			return m.parent == nil
@@ -70,15 +69,12 @@ func (m *Menu) Run() bool {
 				if item.Sub.Run() {
 					return true
 				}
+				clearScreen() // 从子菜单返回时清个屏
 			} else if item.Action != nil {
-				clearScreen()
+				// 执行动作前不强制清屏，保留当前上下文
+				fmt.Println()
 				item.Action()
-				backMsg := "按任意键返回..."
-				if CurrentLang == EN {
-					backMsg = "Press any key to return..."
-				}
-				fmt.Printf("\n%s", backMsg)
-				readKey()
+				fmt.Println("\n------------------------------------------------")
 			}
 		}
 	}
