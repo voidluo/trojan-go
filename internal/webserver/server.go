@@ -766,7 +766,7 @@ func generateClashConfig(db *gorm.DB, users []database.User, domain string, port
 		}
 		sb.WriteString(fmt.Sprintf("  - name: \"%s\"\n    type: trojan\n    server: %s\n    port: %d\n    password: %s\n    udp: %t\n    sni: %s\n    skip-cert-verify: true\n    alpn:\n      - http/1.1\n", name, domain, port, u.Password, mux, domain))
 		if ws {
-			sb.WriteString(fmt.Sprintf("    network: ws\n    ws-opts:\n      path: \"%s\"\n", wsPath))
+			sb.WriteString(fmt.Sprintf("    network: ws\n    ws-opts:\n      path: \"%s\"\n      headers:\n        Host: %s\n", wsPath, domain))
 		}
 		sb.WriteString("\n")
 	}
