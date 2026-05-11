@@ -3,6 +3,7 @@ package menu
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -118,12 +119,32 @@ func readKey() byte {
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		var b [1]byte
-		os.Stdin.Read(b[:])
+		n, err := os.Stdin.Read(b[:])
+		if n == 0 || err != nil {
+			os.Exit(0)
+		}
 		return b[0]
 	}
 	defer term.Restore(fd, oldState)
 
+	timer := time.NewTimer(60 * time.Second)
+	go func() {
+		<-timer.C
+		term.Restore(fd, oldState)
+		if CurrentLang == CN {
+			fmt.Println("\r\n[60秒无输入，自动退出...]")
+		} else {
+			fmt.Println("\r\n[Timeout: 60 seconds of inactivity, exiting...]")
+		}
+		os.Exit(0)
+	}()
+
 	var b [1]byte
-	os.Stdin.Read(b[:])
+	n, readErr := os.Stdin.Read(b[:])
+	timer.Stop()
+
+	if n == 0 || readErr != nil {
+		os.Exit(0)
+	}
 	return b[0]
 }
