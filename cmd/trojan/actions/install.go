@@ -93,48 +93,42 @@ func FirstTimeDeploy() {
 	// 构造双配置方案，解决回落冲突并提供专业注释模板
 	
 	// 1. 代理专用配置模板 (config.yaml)
-	proxyTmpl := `# =================================================================
-# Trojan-Go 代理主配置文件 (Proxy / 443)
-# =================================================================
-# 您正在运行双服务模式：此进程负责处理 443 端口的 TLS 与代理流量。
-# 当非代理流量进入时，如果启用了内置面板，则在 443 响应；否则回落到 80。
-
-run_type: server
+	proxyTmpl := `run_type: server
 local_addr: 0.0.0.0
 local_port: 443
 
-# TLS 层配置
 ssl:
   cert: {{.CertPath}}
   key: {{.KeyPath}}
   sni: {{.Domain}}         # 预设的 SNI 域名
-  verify: false             # 设置为 false 提高兼容性
-  verify_hostname: false    # 设置为 false 解决 SNI 不匹配
-  
-  # 回落机制：默认转发至本地 80
+  verify: false             # 设置为 false 提高浏览器直接访问的兼容性
+  verify_hostname: false    # 设置为 false 解决 SNI 不匹配导致的协议错误
+
+  # 回落机制：将普通网页请求转发至本地 80 端口的管理后台
   fallback_addr: 127.0.0.1
   fallback_port: {{.AdminPort}}
+  # 备选首页：当回落目标不可用时展示的备选页面
   plain_http_response: /etc/trojan-go/index.html
 
-# 管理面板（复用 443 端口提供 WebUI 数据与静态文件）
+mux:                # 开启多路复用，提高小文件传输效率
+  enabled: true
+websocket:
+  enabled: true
+  # 【警告】千万不要用 /ws、/trojan 等常见词汇。用随机生成的字符串最安全。
+  path: "/stream-v2-d8x9"
+  host: "{{.Domain}}"
 admin:
   enabled: true
   username: "{{.User}}"
   password: "{{.Pass}}"
   port: 0
   db: /etc/trojan-go/trojan-go.db
-  path: /
+  path: /admin
 
-# -----------------------------------------------------------------
-# [可选功能] 以下功能已默认关闭，您可以取消注释来开启
-# -----------------------------------------------------------------
-# mux:                # 开启多路复用，提高小文件传输效率
-#   enabled: true
-# websocket:          # 开启 Websocket 支持，用于配合 CDN 使用
-#   enabled: true
-# router:             # 开启内置路由，拦截私有地址请求
-#   enabled: true
-#   block: ["geoip:private"]
+log:
+  level: 1  # 设为 1 或 0 (TRACE)
+  access: /etc/trojan-go/log/trojan-go/access.log
+  error: /etc/trojan-go/log/trojan-go/error.log
 `
 
 	// 2. Web 专用配置模板 (web_config.yaml)
