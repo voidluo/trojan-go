@@ -702,7 +702,10 @@ func (s *AdminServer) trafficSyncWorker() {
 			for _, a := range s.auths {
 				for _, st := range a.ListUsers() {
 					hash := st.Hash()
-					up, down := st.GetTraffic()
+					up, down := st.ResetTraffic()
+					if up == 0 && down == 0 {
+						continue
+					}
 					v := trafficMap[hash]
 					v.up += up
 					v.down += down
@@ -710,13 +713,22 @@ func (s *AdminServer) trafficSyncWorker() {
 				}
 			}
 
+			if len(trafficMap) == 0 {
+				select {
+				case <-s.done:
+					return
+				default:
+				}
+				continue
+			}
+
 			// 开启事务，合并所有流量更新操作，防止碎片化 I/O 导致 SQLite 锁定
 			s.db.Transaction(func(tx *gorm.DB) error {
 				for hash, t := range trafficMap {
 					tx.Model(&database.User{}).Where("hash = ?", hash).Updates(map[string]interface{}{
-						"upload":   int64(t.up),
-						"download": int64(t.down),
-						"used":     int64(t.up + t.down),
+						"upload":   gorm.Expr("upload + ?", int64(t.up)),
+						"download": gorm.Expr("download + ?", int64(t.down)),
+						"used":     gorm.Expr("used + ?", int64(t.up+t.down)),
 					})
 				}
 				return nil
