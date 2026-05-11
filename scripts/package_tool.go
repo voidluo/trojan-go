@@ -17,6 +17,11 @@ func main() {
 	fmt.Println("正在编译 Trojan CLI (Linux amd64)...")
 	build("./cmd/trojan", "build/linux-amd64/trojan")
 
+	fmt.Println("正在拷贝示例配置文件...")
+	if err := copyFile("example/server.yaml", "build/linux-amd64/example/server.yaml"); err != nil {
+		fmt.Printf("拷贝配置文件失败: %v\n", err)
+	}
+
 	// 2. 打包 ZIP 并设置 Linux 权限
 	zipPath := "build/trojan-go-linux-amd64.zip"
 	fmt.Printf("正在打包至 %s 并设置执行权限...\n", zipPath)
@@ -91,4 +96,25 @@ func createZipWithPermissions(srcDir, zipPath string) error {
 		_, err = io.Copy(writer, file)
 		return err
 	})
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }
