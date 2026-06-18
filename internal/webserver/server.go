@@ -372,6 +372,9 @@ func (s *AdminServer) handleUpdateWebSocket(c *gin.Context) {
 		return
 	}
 
+	// 实时更新内存中的状态，使生成的订阅和节点配置立刻同步
+	s.wsEnabled = req.Enabled
+
 	c.JSON(http.StatusOK, gin.H{"message": "WebSocket 配置更新成功"})
 }
 
@@ -671,6 +674,9 @@ func (s *AdminServer) handleShare(c *gin.Context) {
 	}
 	remark := url.QueryEscape(fmt.Sprintf("%s:%d", domain, 443))
 	link := fmt.Sprintf("trojan://%s@%s:%d#%s", user.Password, domain, 443, remark)
+	if s.wsEnabled {
+		link = fmt.Sprintf("trojan://%s@%s:%d?type=ws&path=%s&host=%s#%s", user.Password, domain, 443, url.QueryEscape(s.wsPath), domain, remark)
+	}
 	subLink := fmt.Sprintf("https://%s/sub?token=%s", c.Request.Host, user.Hash)
 	c.JSON(http.StatusOK, gin.H{"link": link, "sub_link": subLink, "username": user.Username, "password": user.Password})
 }

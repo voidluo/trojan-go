@@ -357,7 +357,7 @@ function renderUserTableHtml() {
                         <td><span class="badge ${u.status===0?'badge-green':'badge-red'}">${u.status===0?'运行中':'已停止'}</span></td>
                         <td style="text-align:right">
                             <div style="display:inline-flex; gap:10px">
-                                <button class="btn" onclick="shareUser('${u.username}', '${u.hash}')">💾 下发</button>
+                                <button class="btn" onclick="shareUser(${u.id})">💾 下发</button>
                                 <button class="btn btn-red" onclick="deleteUser(${u.id})">🗑 删除</button>
                             </div>
                         </td>
@@ -629,25 +629,28 @@ function showUserModal() {
     });
 }
 
-function shareUser(name, hash) {
-    const url = `trojan://${hash}@${location.hostname}:443?sni=${location.hostname}#${name}`;
-    const sub = `${location.origin}/sub?token=${hash}`;
+async function shareUser(id) {
+    const data = await api('GET', `/users/${id}/share`);
+    if (!data) {
+        alert('获取节点信息失败');
+        return;
+    }
     showModal('快速接入信息', `
         <div class="form-group">
             <label>通用 Trojan 链接 (直连专用)</label>
             <div style="display:flex;gap:8px">
-                <input readonly id="shLink" value="${url}" style="flex:1">
-                <button class="btn" onclick="copyText('${url}')">复制</button>
+                <input readonly id="shLink" value="${data.link}" style="flex:1">
+                <button class="btn" onclick="copyText('${data.link}')">复制</button>
             </div>
         </div>
         <div class="form-group">
             <label>Clash 订阅地址 (分流必备)</label>
             <div style="display:flex;gap:8px">
-                <input readonly id="shSub" value="${sub}" style="flex:1">
-                <button class="btn" onclick="copyText('${sub}')">复制</button>
+                <input readonly id="shSub" value="${data.sub_link}" style="flex:1">
+                <button class="btn" onclick="copyText('${data.sub_link}')">复制</button>
             </div>
         </div>
-        <button class="btn btn-primary" style="width:100%; height:44px; justify-content:center; margin-top:8px" onclick="window.location.href='clash://install-config?url=' + encodeURIComponent('${sub}')">🚀 一键拉起 Clash 导入订阅</button>
+        <button class="btn btn-primary" style="width:100%; height:44px; justify-content:center; margin-top:8px" onclick="window.location.href='clash://install-config?url=' + encodeURIComponent('${data.sub_link}')">🚀 一键拉起 Clash 导入订阅</button>
     `, null, true);
 }
 
