@@ -5,7 +5,6 @@ import (
 
 	"github.com/voidluo/trojan-go/config"
 	"github.com/voidluo/trojan-go/proxy"
-	"github.com/voidluo/trojan-go/proxy/client"
 	"github.com/voidluo/trojan-go/tunnel/freedom"
 	"github.com/voidluo/trojan-go/tunnel/mux"
 	"github.com/voidluo/trojan-go/tunnel/router"
@@ -21,7 +20,7 @@ const Name = "SERVER"
 
 func init() {
 	proxy.RegisterProxyCreator(Name, func(ctx context.Context) (*proxy.Proxy, error) {
-		cfg := config.FromContext(ctx, Name).(*client.Config)
+		cfg := config.FromContext(ctx, Name).(*Config)
 		ctx, cancel := context.WithCancel(ctx)
 		transportServer, err := transport.NewServer(ctx, nil)
 		if err != nil {

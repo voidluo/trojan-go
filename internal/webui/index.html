@@ -391,7 +391,12 @@ const Login = {
                 <div style="color:var(--text2); font-size:14px">请输入凭据以访问控制中心</div>
             </div>
             <div class="form-group"><label>账号</label><input id="lgUser" type="text" placeholder="Username" value="admin"></div>
-            <div class="form-group"><label>密钥</label><input id="lgPass" type="password" placeholder="Password" onkeyup="if(event.keyCode===13)doLogin()"></div>
+            <div class="form-group"><label>密钥</label>
+                <div style="position:relative; display:flex; align-items:center;">
+                    <input id="lgPass" type="password" placeholder="Password" style="padding-right:40px; width:100%" onkeyup="if(event.keyCode===13)doLogin()">
+                    <span onclick="togglePasswordVisibility('lgPass', this)" style="position:absolute; right:12px; cursor:pointer; font-size:16px; user-select:none;">👁️</span>
+                </div>
+            </div>
             <button class="btn btn-primary" style="width:100%; height:48px; justify-content:center; font-size:15px; margin-top:16px" onclick="doLogin()">进入管理系统</button>
             <div id="lgErr" style="color:var(--red); font-size:13px; margin-top:20px; text-align:center"></div>
         </div>
@@ -491,9 +496,47 @@ function showSettingsMenu() {
             <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showChangePwd()"><span>🔑</span> 修改管理凭据</button>
             <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showEditRules()"><span>📜</span> 编辑分流规则</button>
             <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showSysSettings()"><span>📅</span> 流量重置周期</button>
-            <button class="btn" style="padding:16px; grid-column: span 2" onclick="doBackup()">📂 数据导入导出 / 备份</button>
+            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showEditWebSocket()"><span>🌐</span> WebSocket 伪装</button>
+            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="doBackup()">📂 数据备份恢复</button>
         </div>
     `, null, true);
+}
+
+async function showEditWebSocket() {
+    const res = await api('GET', '/settings/websocket');
+    const enabled = res ? res.enabled : false;
+    let currentWsState = enabled;
+    
+    window.toggleWsUi = function() {
+        currentWsState = !currentWsState;
+        const btn = document.getElementById('mWsBtn');
+        if (currentWsState) {
+            btn.className = 'btn btn-primary';
+            btn.textContent = '已启用 (Enabled)';
+        } else {
+            btn.className = 'btn';
+            btn.textContent = '已禁用 (Disabled)';
+        }
+    };
+    
+    showModal('WebSocket 伪装选项', `
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; min-width:320px">
+            <div>
+                <div style="font-weight:600; margin-bottom:4px; font-size:15px">WebSocket 伪装模式</div>
+                <div style="font-size:12px; color:var(--text2)">开启后可通过 CDN 中转，提升极端环境抗封锁能力</div>
+            </div>
+            <div>
+                <button id="mWsBtn" class="btn ${enabled ? 'btn-primary' : ''}" style="height:38px; padding:0 16px" onclick="toggleWsUi()">${enabled ? '已启用 (Enabled)' : '已禁用 (Disabled)'}</button>
+            </div>
+        </div>
+    `, async () => {
+        await api('POST', '/settings/websocket', { enabled: currentWsState });
+        closeModal();
+        if (confirm('配置修改成功。是否需要立即重启服务使设置生效？')) {
+            await api('POST', '/restart', {});
+            alert('正在重启代理服务...');
+        }
+    });
 }
 
 async function showEditTitle() {
@@ -507,7 +550,12 @@ async function showChangePwd() {
     const s = await api('GET','/settings');
     showModal('管理员权限设置', `
         <div class="form-group"><label>系统账号</label><input id="mAdmUser" type="text" value="${s.admin_username||''}"></div>
-        <div class="form-group"><label>新管理密码 (不改请留空)</label><input id="mAdmPass" type="password"></div>
+        <div class="form-group"><label>新管理密码 (不改请留空)</label>
+            <div style="position:relative; display:flex; align-items:center;">
+                <input id="mAdmPass" type="password" style="padding-right:40px; width:100%" onkeyup="if(event.keyCode===13)document.getElementById('modal-ok').click()">
+                <span onclick="togglePasswordVisibility('mAdmPass', this)" style="position:absolute; right:12px; cursor:pointer; font-size:16px; user-select:none;">👁️</span>
+            </div>
+        </div>
     `, async () => {
         const u = document.getElementById('mAdmUser').value;
         const p = document.getElementById('mAdmPass').value;
@@ -637,6 +685,16 @@ function fallbackCopy(text) {
         alert('复制失败，请手动长按输入框复制');
     }
     document.body.removeChild(ta);
+}
+function togglePasswordVisibility(inputId, btnEl) {
+    const input = document.getElementById(inputId);
+    if (input.type === 'password') {
+        input.type = 'text';
+        btnEl.textContent = '🙈';
+    } else {
+        input.type = 'password';
+        btnEl.textContent = '👁️';
+    }
 }
 
 window.onhashchange = router;

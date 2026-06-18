@@ -2,11 +2,38 @@ package server
 
 import (
 	"github.com/voidluo/trojan-go/config"
-	"github.com/voidluo/trojan-go/proxy/client"
 )
+
+type MuxConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+type WebsocketConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+type RouterConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+type ShadowsocksConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+type TransportPluginConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+type Config struct {
+	Mux             MuxConfig             `json:"mux" yaml:"mux"`
+	Websocket       WebsocketConfig       `json:"websocket" yaml:"websocket"`
+	Router          RouterConfig          `json:"router" yaml:"router"`
+	Shadowsocks     ShadowsocksConfig     `json:"shadowsocks" yaml:"shadowsocks"`
+	TransportPlugin TransportPluginConfig `json:"transport_plugin" yaml:"transport_plugin"`
+}
 
 func init() {
 	config.RegisterConfigCreator(Name, func() any {
-		return new(client.Config)
+		return new(Config)
 	})
 }

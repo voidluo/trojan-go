@@ -2,6 +2,7 @@ package actions
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,15 @@ import (
 
 // FirstTimeDeploy 首次部署一键化流程
 func FirstTimeDeploy() {
+	// 动态生成 6 位随机字符组成 websocket 路径
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+	randChars := make([]byte, 6)
+	for i := range randChars {
+		randChars[i] = letters[r.Intn(len(letters))]
+	}
+	wsPath := "/stream-v2-" + string(randChars)
+
 	if os.Geteuid() != 0 {
 		msg := "错误：安装操作需要 sudo 权限！"
 		if menu.CurrentLang == menu.EN {
@@ -115,7 +125,7 @@ mux:                # 开启多路复用，提高小文件传输效率
 websocket:
   enabled: true
   # 【警告】千万不要用 /ws、/trojan 等常见词汇。用随机生成的字符串最安全。
-  path: "/stream-v2-d8x9"
+  path: "{{.WSPath}}"
   host: "{{.Domain}}"
 admin:
   enabled: true
@@ -166,6 +176,7 @@ admin:
 	proxyContent = strings.ReplaceAll(proxyContent, "{{.KeyPath}}", keyPath)
 	proxyContent = strings.ReplaceAll(proxyContent, "{{.Domain}}", domain)
 	proxyContent = strings.ReplaceAll(proxyContent, "{{.AdminPort}}", fmt.Sprintf("%d", adminPort))
+	proxyContent = strings.ReplaceAll(proxyContent, "{{.WSPath}}", wsPath)
 
 	webContent := webTmpl
 	webContent = strings.ReplaceAll(webContent, "{{.User}}", adminUser)

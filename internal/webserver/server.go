@@ -118,9 +118,13 @@ func New(db *gorm.DB, username, password, mountPath string, port int, wsEnabled 
 				c.Redirect(http.StatusFound, mountPath)
 			})
 		}
-		// 引导根目录到挂载点
+		// 引导根目录到挂载点（安全伪装，不提供302重定向透露后台入口）
 		r.GET("/", func(c *gin.Context) {
-			c.Redirect(http.StatusFound, mountPath)
+			if data, err := os.ReadFile("/etc/trojan-go/index.html"); err == nil {
+				c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+			} else {
+				c.String(http.StatusOK, "Welcome to nginx")
+			}
 		})
 	}
 
@@ -179,6 +183,8 @@ func New(db *gorm.DB, username, password, mountPath string, port int, wsEnabled 
 
 	auth.GET("/settings/backup", srv.handleBackup)
 	auth.POST("/settings/restore", srv.handleRestore)
+	auth.GET("/settings/websocket", srv.handleGetWebSocket)
+	auth.POST("/settings/websocket", srv.handleUpdateWebSocket)
 	{
 		// ─── 系统运维与状态 ──────────────────────────────
 		auth.GET("/status", srv.handleGetStatus)
@@ -266,6 +272,107 @@ func (s *AdminServer) handleLogin(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 	}
+}
+
+func (s *AdminServer) handleGetWebSocket(c *gin.Context) {
+	paths := []string{"config.yaml", "config.yml", "/etc/trojan-go/config.yaml"}
+	var data []byte
+	var err error
+	for _, p := range paths {
+		data, err = os.ReadFile(p)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法读取核心配置文件"})
+		return
+	}
+
+	var cfg map[string]any
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析配置文件失败"})
+		return
+	}
+
+	enabled := false
+	if wsVal, ok := cfg["websocket"]; ok {
+		if ws, ok2 := wsVal.(map[string]any); ok2 {
+			enabled, _ = ws["enabled"].(bool)
+		} else if wsAny, ok3 := wsVal.(map[any]any); ok3 {
+			enabled, _ = wsAny["enabled"].(bool)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"enabled": enabled})
+}
+
+func (s *AdminServer) handleUpdateWebSocket(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的参数"})
+		return
+	}
+
+	paths := []string{"config.yaml", "config.yml", "/etc/trojan-go/config.yaml"}
+	var targetPath string
+	var data []byte
+	var err error
+	for _, p := range paths {
+		data, err = os.ReadFile(p)
+		if err == nil {
+			targetPath = p
+			break
+		}
+	}
+	if targetPath == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "未找到配置文件"})
+		return
+	}
+
+	var cfg map[string]any
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析配置文件失败"})
+		return
+	}
+
+	wsVal, ok := cfg["websocket"]
+	if !ok {
+		wsVal = make(map[string]any)
+		cfg["websocket"] = wsVal
+	}
+
+	var ws map[string]any
+	if wsMap, ok := wsVal.(map[string]any); ok {
+		ws = wsMap
+	} else if wsAny, ok2 := wsVal.(map[any]any); ok2 {
+		ws = make(map[string]any)
+		for k, v := range wsAny {
+			if ks, ok3 := k.(string); ok3 {
+				ws[ks] = v
+			}
+		}
+		cfg["websocket"] = ws
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置文件中的 websocket 格式不正确"})
+		return
+	}
+
+	ws["enabled"] = req.Enabled
+
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成配置文件失败"})
+		return
+	}
+
+	if err := os.WriteFile(targetPath, out, 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "写入配置文件失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "WebSocket 配置更新成功"})
 }
 
 func (s *AdminServer) handleGetSettings(c *gin.Context) {

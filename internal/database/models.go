@@ -36,6 +36,8 @@ func InitDb(dbPath string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 开启 WAL 模式以支持多进程高频读写安全
+	db.Exec("PRAGMA journal_mode=WAL;")
 	// 自动迁移模型
 	err = db.AutoMigrate(&User{}, &Config{})
 	if err != nil {

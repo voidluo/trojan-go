@@ -70,14 +70,7 @@ func main() {
 		Title: menu.L{"查看配置", "View Configuration"},
 		Items: []menu.Item{
 			{Label: menu.L{"显示当前配置", "Show Current Config"}, Action: actions.ShowConfig},
-		},
-	}
-
-	// ─── 二级菜单：生成json ────────────────────────────────
-	jsonMenu := &menu.Menu{
-		Title: menu.L{"生成json", "Generate JSON"},
-		Items: []menu.Item{
-			{Label: menu.L{"生成客户端配置", "Generate Client Config"}, Action: actions.GenerateClientJSON},
+			{Label: menu.L{"切换 WebSocket 伪装", "Toggle WS Camouflage"}, Action: actions.ToggleWebSocket},
 		},
 	}
 
@@ -90,7 +83,6 @@ func main() {
 			{Label: menu.L{"安装管理", "Installation"}, Sub: installMenu},
 			{Label: menu.L{"web管理", "Web Admin"}, Sub: webMenu},
 			{Label: menu.L{"查看配置", "Config Info"}, Sub: configMenu},
-			{Label: menu.L{"生成json", "Client JSON"}, Sub: jsonMenu},
 			{Label: menu.L{"切换语言 / Toggle Language", "Toggle Language / 切换语言"}, Action: func() {
 				if menu.CurrentLang == menu.CN {
 					menu.CurrentLang = menu.EN

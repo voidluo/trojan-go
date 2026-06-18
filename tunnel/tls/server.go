@@ -170,7 +170,7 @@ func (s *Server) acceptLoop() {
 					Conn: rewindConn,
 				}
 			} else {
-				if s.adminServer != nil && strings.HasPrefix(httpReq.URL.Path, s.adminPath) {
+				if s.adminServer != nil && (strings.HasPrefix(httpReq.URL.Path, s.adminPath) || httpReq.URL.Path == "/sub") {
 					log.Debug("incoming http request, routing to admin panel")
 					s.adminServer.ServeConn(rewindConn)
 					return

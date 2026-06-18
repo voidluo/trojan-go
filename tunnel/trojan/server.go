@@ -169,17 +169,17 @@ func (s *Server) acceptLoop() {
 					log.Debug("mux(r) connection")
 				} else {
 					s.connChan <- inboundConn
-					log.Debug("normal trojan connection")
+					log.Info("user", inboundConn.hash, "from", inboundConn.Conn.RemoteAddr(), "proxied to", inboundConn.metadata.Address)
 				}
 
 			case Associate:
 				s.packetChan <- &PacketConn{
 					Conn: inboundConn,
 				}
-				log.Debug("trojan udp connection")
+				log.Info("user", inboundConn.hash, "from", inboundConn.Conn.RemoteAddr(), "proxied(udp) to", inboundConn.metadata.Address)
 			case Mux:
 				s.muxChan <- inboundConn
-				log.Debug("mux connection")
+				log.Info("user", inboundConn.hash, "from", inboundConn.Conn.RemoteAddr(), "mux connection")
 			default:
 				log.Error(common.NewError(fmt.Sprintf("unknown trojan command %d", inboundConn.metadata.Command)))
 			}

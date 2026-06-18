@@ -2,10 +2,12 @@ package actions
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ShowConfig 展示当前配置文件内容
@@ -22,56 +24,87 @@ func ShowConfig() {
 	fmt.Println("\033[33m未找到配置文件，请在运行目录或 /etc/trojan-go/ 中放置 config.yaml 或 config.json。\033[0m")
 }
 
-// GenerateClientJSON 交互式生成客户端配置 JSON
-func GenerateClientJSON() {
-	reader := bufio.NewReader(os.Stdin)
-	get := func(prompt string) string {
-		fmt.Print(prompt)
-		s, _ := reader.ReadString('\n')
-		return strings.TrimSpace(s)
+// ToggleWebSocket 开关配置中的 WebSocket 传输选项
+func ToggleWebSocket() {
+	paths := []string{"config.yaml", "config.yml", "/etc/trojan-go/config.yaml"}
+	var targetPath string
+	var data []byte
+	var err error
+	for _, p := range paths {
+		data, err = os.ReadFile(p)
+		if err == nil {
+			targetPath = p
+			break
+		}
 	}
-
-	serverAddr := get("服务器地址 (域名或IP): ")
-	port := get("服务器端口 (默认443): ")
-	if port == "" {
-		port = "443"
-	}
-	password := get("密码: ")
-	sni := get("SNI/域名 (留空则与服务器地址相同): ")
-	if sni == "" {
-		sni = serverAddr
-	}
-
-	cfg := map[string]any{
-		"run_type":    "client",
-		"local_addr":  "127.0.0.1",
-		"local_port":  1080,
-		"remote_addr": serverAddr,
-		"remote_port": port,
-		"password":    []string{password},
-		"ssl": map[string]any{
-			"sni":    sni,
-			"verify": true,
-		},
-		"mux": map[string]any{"enabled": true},
-		"router": map[string]any{
-			"enabled":        true,
-			"default_policy": "proxy",
-			"bypass": []string{
-				"geoip:cn",
-				"geoip:private",
-				"geosite:cn",
-			},
-			"block": []string{"geosite:category-ads"},
-		},
-	}
-
-	data, _ := json.MarshalIndent(cfg, "", "    ")
-	outFile := "client.json"
-	if err := os.WriteFile(outFile, data, 0644); err != nil {
-		fmt.Printf("\033[31m保存失败: %v\033[0m\n", err)
+	if targetPath == "" {
+		fmt.Println("\033[31m未找到活动的 YAML 配置文件，无法修改 WebSocket 状态。\033[0m")
 		return
 	}
-	fmt.Printf("\033[32m✓ 客户端配置已生成: %s\033[0m\n\n", outFile)
-	fmt.Println(string(data))
+
+	var cfg map[string]any
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		fmt.Printf("\033[31m解析配置文件失败: %v\033[0m\n", err)
+		return
+	}
+
+	wsVal, ok := cfg["websocket"]
+	if !ok {
+		wsVal = make(map[string]any)
+		cfg["websocket"] = wsVal
+	}
+
+	var ws map[string]any
+	if wsMap, ok := wsVal.(map[string]any); ok {
+		ws = wsMap
+	} else if wsAny, ok2 := wsVal.(map[any]any); ok2 {
+		ws = make(map[string]any)
+		for k, v := range wsAny {
+			if ks, ok3 := k.(string); ok3 {
+				ws[ks] = v
+			}
+		}
+		cfg["websocket"] = ws
+	} else {
+		fmt.Println("\033[31m配置文件中的 websocket 节点格式不正确。\033[0m")
+		return
+	}
+
+	enabled, _ := ws["enabled"].(bool)
+	nextState := !enabled
+	ws["enabled"] = nextState
+
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		fmt.Printf("\033[31m生成配置文件失败: %v\033[0m\n", err)
+		return
+	}
+
+	if err := os.WriteFile(targetPath, out, 0644); err != nil {
+		fmt.Printf("\033[31m写入配置文件失败: %v\033[0m\n", err)
+		return
+	}
+
+	stateStr := "已禁用 (Disabled)"
+	if nextState {
+		stateStr = "已启用 (Enabled)"
+	}
+	fmt.Printf("\033[32m✓ WebSocket 伪装已成功切换为: %s\033[0m\n", stateStr)
+
+	// 提示是否重启服务
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("是否立刻重启 trojan-go 服务以应用配置？(y/n, 默认 n): ")
+	ans, _ := reader.ReadString('\n')
+	ans = strings.TrimSpace(ans)
+	if ans == "y" || ans == "Y" {
+		fmt.Println("正在重启 trojan-go 服务...")
+		cmd := exec.Command("systemctl", "restart", "trojan-go")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("\033[31m重启服务失败: %v，请手动运行 sudo systemctl restart trojan-go\033[0m\n", err)
+		} else {
+			fmt.Println("\033[32m✓ 服务已成功重启！\033[0m")
+		}
+	}
 }
+
+
