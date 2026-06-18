@@ -138,6 +138,9 @@ func (s *Server) AcceptConn(tunnel.Tunnel) (tunnel.Conn, error) {
 		Conn:       conn,
 		ReadWriter: rw,
 	}
+	// 强力补丁：强制规范请求头以通过 golang.org/x/net/websocket 对 CDN（如 Cloudflare）转发流量的严格校验
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
 	go wsServer.ServeHTTP(respWriter, req)
 
 	select {
