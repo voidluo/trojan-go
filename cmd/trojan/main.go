@@ -48,20 +48,7 @@ func main() {
 	webMenu := &menu.Menu{
 		Title: menu.L{"web管理", "Web Management"},
 		Items: []menu.Item{
-			{Label: menu.L{"管理后台说明", "Admin Panel Instructions"}, Action: func() {
-				if menu.CurrentLang == menu.CN {
-					fmt.Println("\033[36mWeb 管理后台已内置于 trojan-go 主程序中。\033[0m")
-					fmt.Println("1. 访问端口: 443 (HTTPS)")
-					fmt.Println("2. 访问地址: https://您的域名/")
-					fmt.Println("3. 默认密码: trojan@123")
-					fmt.Println("\n\033[33m建议：请优先通过配置文件开启 admin 块，并重启服务。\033[0m")
-				} else {
-					fmt.Println("\033[36mWeb admin panel is built-in to trojan-go.\033[0m")
-					fmt.Println("1. Port: 443 (HTTPS)")
-					fmt.Println("2. URL: https://your-domain.com/")
-					fmt.Println("3. Default Pwd: trojan@123")
-				}
-			}},
+			{Label: menu.L{"修改管理员密码", "Change Admin Password"}, Action: actions.ChangeAdminPassword},
 		},
 	}
 

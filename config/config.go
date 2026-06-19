@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -26,7 +27,33 @@ func RegisterConfigCreator(name string, creator Creator) {
 	creators[name] = creator
 }
 
+func compatConfigData(data []byte, isJSON bool) []byte {
+	if isJSON {
+		data = bytes.ReplaceAll(data, []byte(`"run-type"`), []byte(`"run_type"`))
+		data = bytes.ReplaceAll(data, []byte(`"log-level"`), []byte(`"log_level"`))
+		data = bytes.ReplaceAll(data, []byte(`"log-file"`), []byte(`"log_file"`))
+		data = bytes.ReplaceAll(data, []byte(`"local-addr"`), []byte(`"local_addr"`))
+		data = bytes.ReplaceAll(data, []byte(`"local-port"`), []byte(`"local_port"`))
+		data = bytes.ReplaceAll(data, []byte(`"remote-addr"`), []byte(`"remote_addr"`))
+		data = bytes.ReplaceAll(data, []byte(`"remote-port"`), []byte(`"remote_port"`))
+		data = bytes.ReplaceAll(data, []byte(`"disable-http-check"`), []byte(`"disable_http_check"`))
+		data = bytes.ReplaceAll(data, []byte(`"udp-timeout"`), []byte(`"udp_timeout"`))
+	} else {
+		data = bytes.ReplaceAll(data, []byte("run-type:"), []byte("run_type:"))
+		data = bytes.ReplaceAll(data, []byte("log-level:"), []byte("log_level:"))
+		data = bytes.ReplaceAll(data, []byte("log-file:"), []byte("log_file:"))
+		data = bytes.ReplaceAll(data, []byte("local-addr:"), []byte("local_addr:"))
+		data = bytes.ReplaceAll(data, []byte("local-port:"), []byte("local_port:"))
+		data = bytes.ReplaceAll(data, []byte("remote-addr:"), []byte("remote_addr:"))
+		data = bytes.ReplaceAll(data, []byte("remote-port:"), []byte("remote_port:"))
+		data = bytes.ReplaceAll(data, []byte("disable-http-check:"), []byte("disable_http_check:"))
+		data = bytes.ReplaceAll(data, []byte("udp-timeout:"), []byte("udp_timeout:"))
+	}
+	return data
+}
+
 func parseJSON(data []byte) (map[string]any, error) {
+	data = compatConfigData(data, true)
 	result := make(map[string]any)
 	for name, creator := range creators {
 		config := creator()
@@ -40,6 +67,7 @@ func parseJSON(data []byte) (map[string]any, error) {
 }
 
 func parseYAML(data []byte) (map[string]any, error) {
+	data = compatConfigData(data, false)
 	result := make(map[string]any)
 	for name, creator := range creators {
 		config := creator()

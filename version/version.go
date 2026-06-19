@@ -6,8 +6,12 @@ import (
 	"runtime"
 
 	"github.com/voidluo/trojan-go/common"
-	"github.com/voidluo/trojan-go/constant"
 	"github.com/voidluo/trojan-go/option"
+)
+
+var (
+	Version = "Custom Version"
+	Commit  = "Unknown Git Commit ID"
 )
 
 type versionOption struct {
@@ -24,10 +28,10 @@ func (*versionOption) Priority() int {
 
 func (c *versionOption) Handle() error {
 	if *c.flag {
-		fmt.Println("Trojan-Go", constant.Version)
+		fmt.Println("Trojan-Go", Version)
 		fmt.Println("Go Version:", runtime.Version())
 		fmt.Println("OS/Arch:", runtime.GOOS+"/"+runtime.GOARCH)
-		fmt.Println("Git Commit:", constant.Commit)
+		fmt.Println("Git Commit:", Commit)
 		fmt.Println("")
 		fmt.Println("Developed by PageFault (voidluo)")
 		fmt.Println("Licensed under GNU General Public License version 3")

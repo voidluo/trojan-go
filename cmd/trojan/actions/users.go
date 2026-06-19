@@ -114,3 +114,31 @@ func UserDelete() {
 	}
 	fmt.Printf("\033[32m✓ 用户 ID=%d 已删除。\033[0m\n", id)
 }
+
+// ChangeAdminPassword 修改 Web 控制台管理员密码
+func ChangeAdminPassword() {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("请输入新的 Web 控制台 admin 密码 (留空取消): ")
+	password, _ := reader.ReadString('\n')
+	password = strings.TrimSpace(password)
+
+	if password == "" {
+		fmt.Println("操作已取消。")
+		return
+	}
+
+	db, err := database.InitDb(dbPath)
+	if err != nil {
+		fmt.Printf("\033[31m数据库连接失败: %v\033[0m\n", err)
+		return
+	}
+
+	// 将密码保存到 configs 表，键为 admin_password
+	err = db.Save(&database.Config{Key: "admin_password", Value: password}).Error
+	if err != nil {
+		fmt.Printf("\033[31m更新密码失败: %v\033[0m\n", err)
+		return
+	}
+
+	fmt.Println("\033[32m✓ Web 控制台 admin 密码已成功修改！\033[0m")
+}

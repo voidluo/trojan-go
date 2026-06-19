@@ -5,7 +5,7 @@ VERSION := $(shell git describe --always --dirty 2>/dev/null || echo "dev")
 COMMIT  := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 
 BUILD_DIR := build
-LDFLAGS := -s -w -buildid= -X $(PACKAGE_NAME)/constant.Version=$(VERSION) -X $(PACKAGE_NAME)/constant.Commit=$(COMMIT)
+LDFLAGS := -s -w -buildid= -X $(PACKAGE_NAME)/version.Version=$(VERSION) -X $(PACKAGE_NAME)/version.Commit=$(COMMIT)
 GOBUILD := CGO_ENABLED=0 go build -tags "full" -trimpath -ldflags="$(LDFLAGS)"
 
 .PHONY: all trojan-go trojan clean install

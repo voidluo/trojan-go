@@ -173,14 +173,38 @@ let currentUsers = [];
 let searchText = '';
 const API = '/api';
 
+let isTimeoutTriggered = false;
+function triggerSessionTimeout() {
+    if (isTimeoutTriggered) return;
+    isTimeoutTriggered = true;
+    
+    let counter = 3;
+    showModal('安全退出', `<div style="padding:16px;text-align:center;font-size:15px">登录会话已过期，系统将在 ${counter} 秒后自动跳转至登录页...</div>`, null, true);
+    
+    const interval = setInterval(() => {
+        counter--;
+        const el = document.querySelector('#modal-overlay .modal-body');
+        if (el) {
+            el.innerHTML = `<div style="padding:16px;text-align:center;font-size:15px">登录会话已过期，系统将在 ${counter} 秒后自动跳转至登录页...</div>`;
+        }
+    }, 1000);
+    
+    setTimeout(() => {
+        clearInterval(interval);
+        closeModal();
+        isTimeoutTriggered = false;
+        logout();
+    }, 3000);
+}
+
 async function api(method, path, body = null) {
     // 审计补丁：超时校验
     const loginTime = localStorage.getItem('login_time');
     if (token && loginTime) {
         const diff = Date.now() - parseInt(loginTime);
-        if (diff > 1800 * 1000) { // 30分钟
-            alert('会话已过期，请重新登录');
-            logout(); return null;
+        const timeoutMins = parseInt(localStorage.getItem('session_timeout') || '30');
+        if (diff > timeoutMins * 60 * 1000) {
+            triggerSessionTimeout(); return null;
         }
     }
 
@@ -193,7 +217,7 @@ async function api(method, path, body = null) {
     
     try {
         const res = await fetch(API + path, options);
-        if (res.status === 401) { logout(); return null; }
+        if (res.status === 401) { triggerSessionTimeout(); return null; }
         const data = await res.json();
         if (data && data.error) throw new Error(data.error);
         return data;
@@ -339,16 +363,16 @@ function renderUserTableHtml() {
                     <th onclick="sortTable('upload')">上传流量 ↕</th>
                     <th onclick="sortTable('download')">下载流量 ↕</th>
                     <th onclick="sortTable('used')">总流量 (已用) ↕</th>
-                    <th>流量限制</th>
+                    <th>流量限额</th>
                     <th>过期日期</th>
-                    <th>运行状态</th>
+                    <th>状态</th>
                     <th style="text-align:right">管理操作</th>
                 </tr>
             </thead>
             <tbody>
                 ${filtered.map(u => `
                     <tr>
-                        <td><div style="font-weight:700; font-family:'Inter'">${u.username}</div><div style="font-size:11px; color:var(--text2); margin-top:4px">PWD: ${u.password}</div></td>
+                        <td><div style="font-weight:700; font-family:'Inter'">${u.username}</div><div style="font-size:11px; color:var(--text2); margin-top:4px">密码: ${u.password}</div></td>
                         <td style="color:var(--text2)">${fmtBytes(u.upload)}</td>
                         <td style="color:var(--text2)">${fmtBytes(u.download)}</td>
                         <td style="font-weight:600">${fmtBytes(u.used)}</td>
@@ -358,6 +382,7 @@ function renderUserTableHtml() {
                         <td style="text-align:right">
                             <div style="display:inline-flex; gap:10px">
                                 <button class="btn" onclick="shareUser(${u.id})">💾 下发</button>
+                                <button class="btn btn-primary" onclick="showEditUserModal(${u.id})">⚙️ 编辑</button>
                                 <button class="btn btn-red" onclick="deleteUser(${u.id})">🗑 删除</button>
                             </div>
                         </td>
@@ -383,35 +408,47 @@ function sortTable(key) {
 }
 
 const Login = {
-    render: () => `
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%; background: radial-gradient(circle at center, #1c212c 0%, #0b0e14 100%)">
-        <div class="card" style="width:400px;padding:48px; border-radius:24px">
-            <div style="text-align:center; margin-bottom:32px">
-                <h2 style="font-size:24px; margin-bottom:8px">管理身份验证</h2>
-                <div style="color:var(--text2); font-size:14px">请输入凭据以访问控制中心</div>
-            </div>
-            <div class="form-group"><label>账号</label><input id="lgUser" type="text" placeholder="Username" value="admin"></div>
-            <div class="form-group"><label>密钥</label>
-                <div style="position:relative; display:flex; align-items:center;">
-                    <input id="lgPass" type="password" placeholder="Password" style="padding-right:40px; width:100%" onkeyup="if(event.keyCode===13)doLogin()">
-                    <span onclick="togglePasswordVisibility('lgPass', this)" style="position:absolute; right:12px; cursor:pointer; font-size:16px; user-select:none;">👁️</span>
+    render: () => {
+        const savedUser = localStorage.getItem('remembered_username') || 'admin';
+        const savedPass = localStorage.getItem('remembered_password') || '';
+        const isRemember = localStorage.getItem('remember_me') === 'true' ? 'checked' : '';
+        return `
+        <div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%; background: radial-gradient(circle at center, #1c212c 0%, #0b0e14 100%)">
+            <form onsubmit="event.preventDefault(); doLogin();" class="card" style="width:400px;padding:48px; border-radius:24px; display:block">
+                <div style="text-align:center; margin-bottom:32px">
+                    <h2 style="font-size:24px; margin-bottom:8px">管理员登录</h2>
+                    <div style="color:var(--text2); font-size:14px">请输入密码以访问控制中心</div>
                 </div>
-            </div>
-            <button class="btn btn-primary" style="width:100%; height:48px; justify-content:center; font-size:15px; margin-top:16px" onclick="doLogin()">进入管理系统</button>
-            <div id="lgErr" style="color:var(--red); font-size:13px; margin-top:20px; text-align:center"></div>
-        </div>
-    </div>`
+                <div class="form-group">
+                    <label for="lgUser">管理账号</label>
+                    <input id="lgUser" name="username" autocomplete="username" type="text" placeholder="Username" value="${savedUser}">
+                </div>
+                <div class="form-group">
+                    <label for="lgPass">密码</label>
+                    <div style="position:relative; display:flex; align-items:center;">
+                        <input id="lgPass" name="password" autocomplete="current-password" type="password" placeholder="Password" style="padding-right:40px; width:100%" value="${savedPass}">
+                        <span onclick="togglePasswordVisibility('lgPass', this)" style="position:absolute; right:12px; cursor:pointer; font-size:16px; user-select:none;">👁️</span>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; margin-bottom:24px; font-size:13px; color:var(--text2)">
+                    <input id="lgRemember" type="checkbox" style="width:16px; height:16px; margin-right:8px; cursor:pointer; width:auto" ${isRemember}>
+                    <label for="lgRemember" style="cursor:pointer; user-select:none">记住密码</label>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%; height:48px; justify-content:center; font-size:15px">进入管理系统</button>
+                <div id="lgErr" style="color:var(--red); font-size:13px; margin-top:20px; text-align:center"></div>
+            </form>
+        </div>`;
+    }
 };
-
-const routes = { '/login': Login, '/dashboard': Dashboard, '/service': ServiceAdmin, '/users': UserList };
 
 async function navigate(path) { location.hash = '#' + path; }
 
 async function router() {
     // 路由跳转前置检查超时
     const loginTime = localStorage.getItem('login_time');
-    if (token && loginTime && (Date.now() - parseInt(loginTime) > 1800 * 1000)) {
-        logout(); return;
+    const timeoutMins = parseInt(localStorage.getItem('session_timeout') || '30');
+    if (token && loginTime && (Date.now() - parseInt(loginTime) > timeoutMins * 60 * 1000)) {
+        triggerSessionTimeout(); return;
     }
 
     const path = location.hash.slice(1) || '/login';
@@ -427,7 +464,7 @@ async function router() {
             <a class="menu-item ${path==='/dashboard'?'active':''}" onclick="navigate('/dashboard')">📊 系统概览</a>
             <a class="menu-item ${path==='/service'?'active':''}" onclick="navigate('/service')">🖥 服务监控</a>
             <a class="menu-item ${path==='/users'?'active':''}" onclick="navigate('/users')">👥 接入用户</a>
-            <a class="menu-item" onclick="showSettingsMenu()">⚙ 系统设置</a>
+            <a class="menu-item ${path==='/settings'?'active':''}" onclick="navigate('/settings')">⚙ 系统设置</a>
         </div>
         <div class="sidebar-footer">
             <button class="btn" style="width:100%; border-color:var(--border)" onclick="logout()">➔ 系统注销</button>
@@ -443,13 +480,23 @@ async function router() {
 async function doLogin() {
     const u = document.getElementById('lgUser').value;
     const p = document.getElementById('lgPass').value;
+    const remember = document.getElementById('lgRemember').checked;
     const res = await api('POST', '/login', { username: u, password: p });
     if (res && res.token) {
         token = res.token;
         localStorage.setItem('token', token);
         localStorage.setItem('login_time', Date.now().toString());
+        if (remember) {
+            localStorage.setItem('remember_me', 'true');
+            localStorage.setItem('remembered_username', u);
+            localStorage.setItem('remembered_password', p);
+        } else {
+            localStorage.setItem('remember_me', 'false');
+            localStorage.removeItem('remembered_username');
+            localStorage.removeItem('remembered_password');
+        }
         location.hash = '#/dashboard';
-    } else { document.getElementById('lgErr').textContent = '登陆失败: 账号或密码不匹配'; }
+    } else { document.getElementById('lgErr').textContent = '登录失败: 账号或密码不匹配'; }
 }
 
 function logout() { 
@@ -457,12 +504,16 @@ function logout() {
     localStorage.removeItem('token'); 
     localStorage.removeItem('login_time'); 
     navigate('/login'); 
+    location.reload();
 }
 
 async function updateTitle() {
     const s = await api('GET','/settings'); if (!s) return;
     const t = s.site_title || 'Trojan-Go'; document.title = t;
     const el = document.getElementById('navTitle'); if (el) el.textContent = t;
+    if (s.session_timeout) {
+        localStorage.setItem('session_timeout', s.session_timeout);
+    }
 }
 
 function showModal(title, content, onOk, hideFooter = false) {
@@ -489,114 +540,228 @@ function closeModal() {
     if(el) { el.classList.remove('active'); setTimeout(() => el.remove(), 250); }
 }
 
-function showSettingsMenu() {
-    showModal('系统配置中心', `
-        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:0">
-            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showEditTitle()"><span>🏷️</span> 修改站点标题</button>
-            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showChangePwd()"><span>🔑</span> 修改管理凭据</button>
-            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showEditRules()"><span>📜</span> 编辑分流规则</button>
-            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showSysSettings()"><span>📅</span> 流量重置周期</button>
-            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="showEditWebSocket()"><span>🌐</span> WebSocket 伪装</button>
-            <button class="btn" style="padding:16px; flex-direction:column; gap:4px" onclick="doBackup()">📂 数据备份恢复</button>
-        </div>
-    `, null, true);
-}
+const SettingsPage = {
+    render: async () => {
+        const s = await api('GET', '/settings');
+        if (!s) return '<div style="padding:20px;text-align:center;color:var(--text2)">加载中...</div>';
+        
+        const wsRes = await api('GET', '/settings/websocket');
+        const wsConfig = wsRes ? wsRes.config : '';
+        s.websocket_config = wsConfig;
+        
+        window.currentSettingsCached = s;
+        
+        const fullYaml = `# rules:\n${s.clash_rules||''}\n\n# rule-providers:\n${s.clash_rule_providers||''}`;
+        
+        return `
+        <div style="max-width: 800px; margin: 0 auto; padding-bottom: 40px;">
+            <div class="header-bar"><h1>系统设置</h1></div>
+            
+            <!-- 基础站点设置 -->
+            <div id="card-site" class="card shadow-lg" style="margin-bottom: 32px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; display:flex; align-items:center; gap:8px; margin:0"><span>🏷️</span> 基础站点设置</h3>
+                    <button class="btn btn-primary card-edit-btn" onclick="toggleEditCard('card-site', true)">✏️ 修改配置</button>
+                </div>
+                <div class="form-group">
+                    <label>站点标题</label>
+                    <input id="setSiteTitle" type="text" disabled value="${s.site_title||''}">
+                </div>
+                <div class="form-group">
+                    <label>登录有效时间 (分钟)</label>
+                    <input id="setSessionTimeout" type="number" disabled value="${s.session_timeout||'30'}">
+                </div>
+                <div class="card-save-area" style="display:none; justify-content:flex-end; gap:12px; margin-top:24px">
+                    <button class="btn btn-primary" onclick="saveSiteSettings()">保存修改</button>
+                </div>
+            </div>
+            
+            <!-- 安全与密码设置 -->
+            <div id="card-admin" class="card shadow-lg" style="margin-bottom: 32px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; display:flex; align-items:center; gap:8px; margin:0"><span>🔑</span> 安全与密码设置</h3>
+                    <button class="btn btn-primary card-edit-btn" onclick="toggleEditCard('card-admin', true)">✏️ 修改配置</button>
+                </div>
+                <div class="form-group">
+                    <label>管理账号</label>
+                    <input id="setAdmUser" type="text" disabled value="${s.admin_username||''}">
+                </div>
+                <div class="form-group">
+                    <label>新密码 (不改请留空)</label>
+                    <div style="position:relative; display:flex; align-items:center;">
+                        <input id="setAdmPass" type="password" disabled style="padding-right:40px; width:100%" placeholder="••••••••">
+                        <span onclick="togglePasswordVisibility('setAdmPass', this)" style="position:absolute; right:12px; cursor:pointer; font-size:16px; user-select:none;">👁️</span>
+                    </div>
+                </div>
+                <div class="card-save-area" style="display:none; justify-content:flex-end; gap:12px; margin-top:24px">
+                    <button class="btn btn-primary" onclick="saveAdminCreds()">修改密码</button>
+                </div>
+            </div>
+            
+            <!-- WebSocket 伪装设置 -->
+            <div id="card-ws" class="card shadow-lg" style="margin-bottom: 32px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                    <h3 style="font-size: 16px; display:flex; align-items:center; gap:8px; margin:0"><span>🌐</span> WebSocket 伪装设置</h3>
+                    <button class="btn btn-primary card-edit-btn" onclick="toggleEditCard('card-ws', true)">✏️ 修改配置</button>
+                </div>
+                <p style="font-size: 12px; color: var(--text2); margin-bottom: 20px; line-height: 1.6">
+                    开启后可通过 CDN 中转，提升极端环境抗封锁能力。修改后需要重启代理服务生效。请按照 YAML 语法进行配置。
+                </p>
+                <textarea id="setWsEditor" class="editor" disabled style="height: 160px; font-family: monospace;">${wsConfig}</textarea>
+                <div class="card-save-area" style="display:none; justify-content:flex-end; gap:12px; margin-top:24px">
+                    <button class="btn btn-primary" onclick="saveWsConfig()">保存并重启生效</button>
+                </div>
+            </div>
 
-async function showEditWebSocket() {
-    const res = await api('GET', '/settings/websocket');
-    const enabled = res ? res.enabled : false;
-    let currentWsState = enabled;
+            <!-- Clash 订阅规则模板 -->
+            <div id="card-clash" class="card shadow-lg" style="margin-bottom: 32px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                    <h3 style="font-size: 16px; display:flex; align-items:center; gap:8px; margin:0"><span>📜</span> Clash 订阅规则模板</h3>
+                    <button class="btn btn-primary card-edit-btn" onclick="toggleEditCard('card-clash', true)">✏️ 修改配置</button>
+                </div>
+                <div style="font-size:12px; color:var(--text2); margin-bottom:20px">修改后下发的 Clash 订阅文件将采用此规则配置。请按 YAML 语法进行配置。</div>
+                <textarea id="setRulesEditor" class="editor" disabled spellcheck="false" style="height: 350px;">${fullYaml}</textarea>
+                <div class="card-save-area" style="display:none; justify-content:flex-end; gap:12px; margin-top:24px">
+                    <button class="btn btn-primary" onclick="saveRulesConfig()">保存规则配置</button>
+                </div>
+            </div>
+
+            <!-- 数据备份与恢复 -->
+            <div id="card-backup" class="card shadow-lg" style="margin-bottom: 32px;">
+                <h3 style="margin-bottom: 12px; font-size: 16px; display:flex; align-items:center; gap:8px"><span>📂</span> 数据备份与恢复</h3>
+                <p style="font-size: 12px; color: var(--text2); margin-bottom: 24px; line-height: 1.6">
+                    导出所有接入用户的配置到本地 JSON，或者从本地的备份文件恢复用户列表。<strong>警告：导入备份将彻底覆盖现有用户！</strong>
+                </p>
+                <div style="display:flex; gap:16px;">
+                    <button class="btn btn-primary" style="justify-content:center; height:42px; font-size:13px; flex:1" onclick="window.location.href='${API}/settings/backup?token=${token}'">📥 导出用户配置 (JSON)</button>
+                    <button class="btn" style="justify-content:center; border-color:var(--border); height:42px; font-size:13px; flex:1" onclick="triggerRestoreUpload()">📤 导入本地备份</button>
+                </div>
+            </div>
+        </div>`;
+    }
+};
+
+const routes = { '/login': Login, '/dashboard': Dashboard, '/service': ServiceAdmin, '/users': UserList, '/settings': SettingsPage };
+
+window.toggleEditCard = function(cardId, isEditing) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
     
-    window.toggleWsUi = function() {
-        currentWsState = !currentWsState;
-        const btn = document.getElementById('mWsBtn');
-        if (currentWsState) {
-            btn.className = 'btn btn-primary';
-            btn.textContent = '已启用 (Enabled)';
-        } else {
-            btn.className = 'btn';
-            btn.textContent = '已禁用 (Disabled)';
+    const inputs = card.querySelectorAll('input, select, textarea, button.toggle-btn');
+    const editBtn = card.querySelector('.card-edit-btn');
+    const saveArea = card.querySelector('.card-save-area');
+    
+    if (isEditing) {
+        inputs.forEach(el => {
+            if (el !== editBtn) el.removeAttribute('disabled');
+        });
+        editBtn.innerHTML = '✕ 取消修改';
+        editBtn.className = 'btn btn-red card-edit-btn';
+        editBtn.setAttribute('onclick', `toggleEditCard('${cardId}', false)`);
+        if (saveArea) saveArea.style.display = 'flex';
+    } else {
+        const s = window.currentSettingsCached;
+        if (cardId === 'card-site') {
+            document.getElementById('setSiteTitle').value = s.site_title || '';
+            document.getElementById('setSessionTimeout').value = s.session_timeout || '30';
+        } else if (cardId === 'card-admin') {
+            document.getElementById('setAdmUser').value = s.admin_username || '';
+            document.getElementById('setAdmPass').value = '';
+        } else if (cardId === 'card-ws') {
+            document.getElementById('setWsEditor').value = s.websocket_config || '';
+        } else if (cardId === 'card-clash') {
+            const fullYaml = `# rules:\n${s.clash_rules||''}\n\n# rule-providers:\n${s.clash_rule_providers||''}`;
+            document.getElementById('setRulesEditor').value = fullYaml;
         }
-    };
-    
-    showModal('WebSocket 伪装选项', `
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; min-width:320px">
-            <div>
-                <div style="font-weight:600; margin-bottom:4px; font-size:15px">WebSocket 伪装模式</div>
-                <div style="font-size:12px; color:var(--text2)">开启后可通过 CDN 中转，提升极端环境抗封锁能力</div>
-            </div>
-            <div>
-                <button id="mWsBtn" class="btn ${enabled ? 'btn-primary' : ''}" style="height:38px; padding:0 16px" onclick="toggleWsUi()">${enabled ? '已启用 (Enabled)' : '已禁用 (Disabled)'}</button>
-            </div>
-        </div>
-    `, async () => {
-        await api('POST', '/settings/websocket', { enabled: currentWsState });
-        closeModal();
+        
+        inputs.forEach(el => {
+            if (el !== editBtn) el.setAttribute('disabled', 'true');
+        });
+        editBtn.innerHTML = '✏️ 修改配置';
+        editBtn.className = 'btn btn-primary card-edit-btn';
+        editBtn.setAttribute('onclick', `toggleEditCard('${cardId}', true)`);
+        if (saveArea) saveArea.style.display = 'none';
+    }
+};
+
+window.saveSiteSettings = async function() {
+    const title = document.getElementById('setSiteTitle').value;
+    const timeout = document.getElementById('setSessionTimeout').value;
+    const res = await api('POST', '/settings', { site_title: title, session_timeout: timeout });
+    if (res) {
+        alert('站点设置已更新！');
+        window.currentSettingsCached.site_title = title;
+        window.currentSettingsCached.session_timeout = timeout;
+        localStorage.setItem('session_timeout', timeout);
+        updateTitle();
+        toggleEditCard('card-site', false);
+    } else {
+        alert('保存站点设置失败');
+    }
+};
+
+window.saveAdminCreds = async function() {
+    const u = document.getElementById('setAdmUser').value;
+    const p = document.getElementById('setAdmPass').value;
+    const res = await api('POST', '/settings/admin', { username: u, password: p });
+    if (res) {
+        let counter = 3;
+        showModal('提示', `<div style="padding:16px;text-align:center;font-size:15px">管理员密码修改成功，系统将在 ${counter} 秒后自动安全退出并重新登录...</div>`, null, true);
+        const interval = setInterval(() => {
+            counter--;
+            const el = document.querySelector('#modal-overlay .modal-body');
+            if (el) {
+                el.innerHTML = `<div style="padding:16px;text-align:center;font-size:15px">管理员密码修改成功，系统将在 ${counter} 秒后自动安全退出并重新登录...</div>`;
+            }
+        }, 1000);
+        setTimeout(() => {
+            clearInterval(interval);
+            closeModal();
+            logout();
+        }, 3000);
+    } else {
+        alert('修改密码失败');
+    }
+};
+
+window.saveWsConfig = async function() {
+    const val = document.getElementById('setWsEditor').value;
+    const res = await api('POST', '/settings/websocket', { config: val });
+    if (res) {
+        alert('WebSocket 伪装配置保存成功！');
+        window.currentSettingsCached.websocket_config = val;
+        toggleEditCard('card-ws', false);
         if (confirm('配置修改成功。是否需要立即重启服务使设置生效？')) {
             await api('POST', '/restart', {});
             alert('正在重启代理服务...');
         }
-    });
-}
+    } else {
+        alert('保存 WebSocket 配置失败');
+    }
+};
 
-async function showEditTitle() {
-    const s = await api('GET','/settings');
-    showModal('站点全局标题', `<div class="form-group"><label>新标题</label><input id="mSiteTitle" type="text" value="${s.site_title||''}"></div>`, async () => {
-        await api('POST','/settings', {site_title: document.getElementById('mSiteTitle').value});
-        closeModal(); updateTitle();
-    });
-}
-async function showChangePwd() {
-    const s = await api('GET','/settings');
-    showModal('管理员权限设置', `
-        <div class="form-group"><label>系统账号</label><input id="mAdmUser" type="text" value="${s.admin_username||''}"></div>
-        <div class="form-group"><label>新管理密码 (不改请留空)</label>
-            <div style="position:relative; display:flex; align-items:center;">
-                <input id="mAdmPass" type="password" style="padding-right:40px; width:100%" onkeyup="if(event.keyCode===13)document.getElementById('modal-ok').click()">
-                <span onclick="togglePasswordVisibility('mAdmPass', this)" style="position:absolute; right:12px; cursor:pointer; font-size:16px; user-select:none;">👁️</span>
-            </div>
-        </div>
-    `, async () => {
-        const u = document.getElementById('mAdmUser').value;
-        const p = document.getElementById('mAdmPass').value;
-        await api('POST','/settings/admin', {username:u, password:p});
-        alert('修改成功，请重新登录'); logout();
-    });
-}
-async function showSysSettings() {
-    const s = await api('GET','/settings');
-    showModal('流量自动重置', `
-        <div class="form-group"><label>每月重置日 (1-28, 0表示手动重置)</label>
-        <input id="mResetDay" type="number" min="0" max="28" value="${s.traffic_reset_day||0}"></div>
-    `, async () => {
-        await api('POST','/settings', {traffic_reset_day: document.getElementById('mResetDay').value});
-        closeModal();
-    });
-}
-async function showEditRules() {
-    const s = await api('GET','/settings');
-    const fullYaml = `# rules:\n${s.clash_rules||''}\n\n# rule-providers:\n${s.clash_rule_providers||''}`;
-    showModal('Clash 订阅规则模板', `
-        <div style="font-size:12px; color:var(--text2); margin-bottom:12px">此处配置将直接影响下发的 Clash 订阅文件结构。</div>
-        <textarea id="mRulesEditor" class="editor" spellcheck="false" placeholder="YAML Format...">${fullYaml}</textarea>
-    `, async () => {
-        const val = document.getElementById('mRulesEditor').value;
-        const parts = val.split('# rule-providers:');
-        const rules = parts[0].replace('# rules:', '').trim();
-        const providers = parts[1] ? parts[1].trim() : '';
-        await api('POST','/settings', {clash_rules: rules, clash_rule_providers: providers});
-        closeModal();
-    });
-}
+window.saveRulesConfig = async function() {
+    const val = document.getElementById('setRulesEditor').value;
+    const parts = val.split('# rule-providers:');
+    const rules = parts[0].replace('# rules:', '').trim();
+    const providers = parts[1] ? parts[1].trim() : '';
+    const res = await api('POST', '/settings', { clash_rules: rules, clash_rule_providers: providers });
+    if (res) {
+        alert('订阅规则模板保存成功');
+        window.currentSettingsCached.clash_rules = rules;
+        window.currentSettingsCached.clash_rule_providers = providers;
+        toggleEditCard('card-clash', false);
+    } else {
+        alert('保存规则配置失败');
+    }
+};
 
-function doBackup() {
-    showModal('快照管理', `
-        <div style="display:flex; flex-direction:column; gap:16px; padding:8px">
-            <button class="btn btn-primary" style="height:48px; justify-content:center" onclick="window.location.href='${API}/settings/backup?token=${token}'">📥 导出所有用户配置 (JSON)</button>
-            <button class="btn" style="height:48px; border-color:var(--border); justify-content:center" onclick="document.getElementById('restoreFile').click()">📤 恢复本地备份文件</button>
-        </div>
-    `, null, true);
-}
+window.triggerRestoreUpload = function() {
+    if (confirm('警告：导入备份数据将彻底替换当前所有用户，确定要继续吗？')) {
+        document.getElementById('restoreFile').click();
+    }
+};
+
 async function doRestore(input) {
     if (!input.files[0]) return;
     const reader = new FileReader();
@@ -613,9 +778,9 @@ async function deleteUser(id) { if (confirm('确定要移除该用户吗？')) {
 
 function showUserModal() {
     showModal('接入新成员', `
-        <div class="form-group"><label>备注名称 / 用户名</label><input id="uName" type="text" placeholder="Alias"></div>
-        <div class="form-group"><label>连接密码</label><div style="display:flex;gap:8px"><input id="uPass" type="text"><button class="btn" onclick="document.getElementById('uPass').value=randStr(16)">自动生成</button></div></div>
-        <div class="form-group"><label>总流量额度 (GB, -1为无限制)</label><input id="uQuota" type="number" value="-1"></div>
+        <div class="form-group"><label>用户名/备注</label><input id="uName" type="text" placeholder="Alias"></div>
+        <div class="form-group"><label>密码</label><div style="display:flex;gap:8px"><input id="uPass" type="text"><button class="btn" onclick="document.getElementById('uPass').value=randStr(16)">自动生成</button></div></div>
+        <div class="form-group"><label>流量限额 (GB, -1为无限制)</label><input id="uQuota" type="number" value="-1"></div>
         <div class="form-group"><label>过期日期 (留空为永不过期)</label><input id="uExpiry" type="date"></div>
     `, async () => {
         const u = {
@@ -628,6 +793,112 @@ function showUserModal() {
         if (await api('POST', '/users', u)) { closeModal(); router(); }
     });
 }
+
+async function showEditUserModal(id) {
+    const u = currentUsers.find(user => user.id === id);
+    if (!u) {
+        alert('用户不存在');
+        return;
+    }
+
+    const expiryDate = u.expiry_time ? u.expiry_time.slice(0, 10) : '';
+    const quotaGB = u.quota === -1 ? -1 : Math.round(u.quota / (1024*1024*1024));
+
+    showModal('编辑用户', `
+        <div class="form-group">
+            <label>用户名/备注</label>
+            <input id="eName" type="text" value="${u.username}">
+        </div>
+        <div class="form-group">
+            <label>密码</label>
+            <div style="display:flex;gap:8px">
+                <input id="ePass" type="text" value="${u.password}">
+                <button class="btn" onclick="document.getElementById('ePass').value=randStr(16)">自动生成</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>状态</label>
+            <select id="eStatus">
+                <option value="0" ${u.status === 0 ? 'selected' : ''}>启用</option>
+                <option value="1" ${u.status === 1 ? 'selected' : ''}>禁用</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>流量限额 (GB, -1为无限制)</label>
+            <input id="eQuota" type="number" value="${quotaGB}">
+        </div>
+        <div class="form-group">
+            <label>IP 限制 (0为无限制)</label>
+            <input id="eIPLimit" type="number" value="${u.ip_limit || 0}">
+        </div>
+        <div class="form-group">
+            <label>过期日期</label>
+            <input id="eExpiry" type="date" value="${expiryDate}">
+        </div>
+        
+        <div style="border-top:1px solid var(--border); margin-top:20px; padding-top:16px">
+            <label style="display:block; font-size:13px; color:var(--text2); margin-bottom:12px; font-weight:500">快捷运维操作</label>
+            <div style="display:flex; gap:10px; flex-wrap:wrap">
+                <button class="btn btn-red" onclick="quickClearTraffic(${id})">🧹 流量统计清零</button>
+                <button class="btn btn-amber" onclick="quickExtendDays(30)">延期 30 天</button>
+                <button class="btn" style="border-color:var(--border)" onclick="quickClearLimits()">🔓 解除所有限制</button>
+            </div>
+        </div>
+    `, async () => {
+        const quotaVal = parseInt(document.getElementById('eQuota').value);
+        const quotaBytes = quotaVal < 0 ? -1 : quotaVal * 1024 * 1024 * 1024;
+        
+        const expiryVal = document.getElementById('eExpiry').value;
+        const expiryTime = expiryVal ? expiryVal + " 23:59:59" : "";
+
+        const payload = {
+            username: document.getElementById('eName').value,
+            password: document.getElementById('ePass').value,
+            status: parseInt(document.getElementById('eStatus').value),
+            quota: quotaBytes,
+            ip_limit: parseInt(document.getElementById('eIPLimit').value),
+            expiry_time: expiryTime
+        };
+
+        const res = await api('PUT', `/users/${id}`, payload);
+        if (res) {
+            closeModal();
+            router();
+        } else {
+            alert('保存修改失败');
+        }
+    });
+}
+
+window.quickClearTraffic = async function(id) {
+    if (confirm('确定要清空该用户的上传/下载流量统计吗？')) {
+        const res = await api('DELETE', `/users/${id}/data`);
+        if (res) {
+            alert('流量统计已清零！');
+            closeModal();
+            router();
+        }
+    }
+};
+
+window.quickExtendDays = function(days) {
+    const el = document.getElementById('eExpiry');
+    let baseDate = new Date();
+    if (el.value) {
+        baseDate = new Date(el.value);
+    }
+    baseDate.setDate(baseDate.getDate() + days);
+    const y = baseDate.getFullYear();
+    const m = String(baseDate.getMonth() + 1).padStart(2, '0');
+    const d = String(baseDate.getDate()).padStart(2, '0');
+    el.value = `${y}-${m}-${d}`;
+};
+
+window.quickClearLimits = function() {
+    document.getElementById('eQuota').value = "-1";
+    document.getElementById('eIPLimit').value = "0";
+    document.getElementById('eExpiry').value = "";
+};
 
 async function shareUser(id) {
     const data = await api('GET', `/users/${id}/share`);

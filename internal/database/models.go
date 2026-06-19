@@ -6,6 +6,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // User 代理用户模型
@@ -32,7 +33,9 @@ type Config struct {
 
 // InitDb 初始化数据库
 func InitDb(dbPath string) (*gorm.DB, error) {
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -45,17 +48,29 @@ func InitDb(dbPath string) (*gorm.DB, error) {
 	}
 
 	// 初始化默认配置
-	defaultRules := `  - RULE-SET,applications,DIRECT
+	defaultRules := `  - RULE-SET,reject,REJECT
+  - RULE-SET,applications,DIRECT
   - DOMAIN,clash.razord.top,DIRECT
   - DOMAIN,yacd.haishan.me,DIRECT
   - RULE-SET,private,DIRECT
-  - RULE-SET,reject,REJECT
+  - DOMAIN-SUFFIX,jsdelivr.net,PROXY
+  - DOMAIN-SUFFIX,google.com,PROXY
+  - DOMAIN-SUFFIX,googleapis.com,PROXY
+  - DOMAIN-SUFFIX,googleusercontent.com,PROXY
+  - DOMAIN-SUFFIX,gstatic.com,PROXY
+  - DOMAIN-SUFFIX,googlevideo.com,PROXY
+  - DOMAIN-SUFFIX,youtube.com,PROXY
+  - DOMAIN-SUFFIX,ytimg.com,PROXY
   - RULE-SET,icloud,DIRECT
   - RULE-SET,apple,DIRECT
-  - RULE-SET,google,DIRECT
+  - RULE-SET,google,PROXY
   - RULE-SET,proxy,PROXY
   - RULE-SET,direct,DIRECT
-  - RULE-SET,lancidr,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
   - RULE-SET,cncidr,DIRECT
   - RULE-SET,telegramcidr,PROXY
   - GEOIP,LAN,DIRECT
@@ -111,27 +126,6 @@ func InitDb(dbPath string) (*gorm.DB, error) {
     path: ./ruleset/private.yaml
     interval: 86400
 
-  gfw:
-    type: http
-    behavior: domain
-    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/gfw.txt"
-    path: ./ruleset/gfw.yaml
-    interval: 86400
-
-  greatfire:
-    type: http
-    behavior: domain
-    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/greatfire.txt"
-    path: ./ruleset/greatfire.yaml
-    interval: 86400
-
-  tld-not-cn:
-    type: http
-    behavior: domain
-    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/tld-not-cn.txt"
-    path: ./ruleset/tld-not-cn.yaml
-    interval: 86400
-
   telegramcidr:
     type: http
     behavior: ipcidr
@@ -144,13 +138,6 @@ func InitDb(dbPath string) (*gorm.DB, error) {
     behavior: ipcidr
     url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/cncidr.txt"
     path: ./ruleset/cncidr.yaml
-    interval: 86400
-
-  lancidr:
-    type: http
-    behavior: ipcidr
-    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/lancidr.txt"
-    path: ./ruleset/lancidr.yaml
     interval: 86400
 
   applications:
@@ -170,11 +157,117 @@ func InitDb(dbPath string) (*gorm.DB, error) {
 		db.FirstOrCreate(&Config{}, seed)
 	}
 
-	// 补丁：修正历史存量数据中的错误规则组名称 (静默处理)
+	// 补丁：修正历史存量数据中的错误规则组名称及 Google 直连逻辑错误 (静默处理)
 	var oldRule Config
 	if db.Where("key = ? AND value LIKE ?", "clash_rules", "%MATCH,Trojan%").Limit(1).Find(&oldRule).RowsAffected > 0 {
 		newVal := strings.ReplaceAll(oldRule.Value, "MATCH,Trojan", "MATCH,PROXY")
 		db.Model(&Config{}).Where("key = ?", "clash_rules").Update("value", newVal)
+	}
+	if db.Where("key = ? AND value LIKE ?", "clash_rules", "%- RULE-SET,google,DIRECT%").Limit(1).Find(&oldRule).RowsAffected > 0 {
+		newVal := strings.ReplaceAll(oldRule.Value, "- RULE-SET,google,DIRECT", "- RULE-SET,google,PROXY")
+		db.Model(&Config{}).Where("key = ?", "clash_rules").Update("value", newVal)
+	}
+	if db.Where("key = ? AND value NOT LIKE ?", "clash_rules", "%jsdelivr.net%").Limit(1).Find(&oldRule).RowsAffected > 0 {
+		newVal := strings.ReplaceAll(oldRule.Value, "- RULE-SET,private,DIRECT", "- RULE-SET,private,DIRECT\n  - DOMAIN-SUFFIX,jsdelivr.net,PROXY")
+		db.Model(&Config{}).Where("key = ?", "clash_rules").Update("value", newVal)
+	}
+	if db.Where("key = ? AND value NOT LIKE ?", "clash_rules", "%google.com,PROXY%").Limit(1).Find(&oldRule).RowsAffected > 0 {
+		var googleRules string
+		if strings.Contains(oldRule.Value, "  - MATCH,PROXY") {
+			googleRules = `  - DOMAIN-SUFFIX,google.com,PROXY
+  - DOMAIN-SUFFIX,googleapis.com,PROXY
+  - DOMAIN-SUFFIX,googleusercontent.com,PROXY
+  - DOMAIN-SUFFIX,gstatic.com,PROXY
+  - DOMAIN-SUFFIX,googlevideo.com,PROXY
+  - DOMAIN-SUFFIX,youtube.com,PROXY
+  - DOMAIN-SUFFIX,ytimg.com,PROXY
+  - MATCH,PROXY`
+			newVal := strings.ReplaceAll(oldRule.Value, "  - MATCH,PROXY", googleRules)
+			db.Model(&Config{}).Where("key = ?", "clash_rules").Update("value", newVal)
+		} else if strings.Contains(oldRule.Value, "- MATCH,PROXY") {
+			googleRules = `  - DOMAIN-SUFFIX,google.com,PROXY
+  - DOMAIN-SUFFIX,googleapis.com,PROXY
+  - DOMAIN-SUFFIX,googleusercontent.com,PROXY
+  - DOMAIN-SUFFIX,gstatic.com,PROXY
+  - DOMAIN-SUFFIX,googlevideo.com,PROXY
+  - DOMAIN-SUFFIX,youtube.com,PROXY
+  - DOMAIN-SUFFIX,ytimg.com,PROXY
+- MATCH,PROXY`
+			newVal := strings.ReplaceAll(oldRule.Value, "- MATCH,PROXY", googleRules)
+			db.Model(&Config{}).Where("key = ?", "clash_rules").Update("value", newVal)
+		}
+	}
+	if db.Where("key = ? AND value LIKE ?", "clash_rules", "%- RULE-SET,lancidr,DIRECT%").Limit(1).Find(&oldRule).RowsAffected > 0 {
+		lanRules := `  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve`
+		newVal := strings.ReplaceAll(oldRule.Value, "  - RULE-SET,lancidr,DIRECT", lanRules)
+		db.Model(&Config{}).Where("key = ?", "clash_rules").Update("value", newVal)
+	}
+
+	// 补丁：修正历史存量数据中由于上次 lancidr 替换多出了 2 个空格（变成 4 个空格的 "    - IP-CIDR"）导致 Clash 解析错误的 Bug
+	var badRule Config
+	if db.Where("key = ? AND value LIKE ?", "clash_rules", "%    - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve%").Limit(1).Find(&badRule).RowsAffected > 0 {
+		newVal := strings.ReplaceAll(badRule.Value, "    - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve", "  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve")
+		db.Model(&Config{}).Where("key = ?", "clash_rules").Update("value", newVal)
+	}
+
+	// 补丁：从老用户的配置中移除冗余未使用的 rule-providers
+	var oldProviders Config
+	if db.Where("key = ?", "clash_rule_providers").First(&oldProviders).Error == nil {
+		changed := false
+		val := oldProviders.Value
+		gfwStr := "\n\n  gfw:\n    type: http\n    behavior: domain\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/gfw.txt\"\n    path: ./ruleset/gfw.yaml\n    interval: 86400"
+		if strings.Contains(val, gfwStr) {
+			val = strings.ReplaceAll(val, gfwStr, "")
+			changed = true
+		} else {
+			gfwStr2 := "  gfw:\n    type: http\n    behavior: domain\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/gfw.txt\"\n    path: ./ruleset/gfw.yaml\n    interval: 86400\n\n"
+			if strings.Contains(val, gfwStr2) {
+				val = strings.ReplaceAll(val, gfwStr2, "")
+				changed = true
+			}
+		}
+		gfStr := "\n\n  greatfire:\n    type: http\n    behavior: domain\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/greatfire.txt\"\n    path: ./ruleset/greatfire.yaml\n    interval: 86400"
+		if strings.Contains(val, gfStr) {
+			val = strings.ReplaceAll(val, gfStr, "")
+			changed = true
+		} else {
+			gfStr2 := "  greatfire:\n    type: http\n    behavior: domain\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/greatfire.txt\"\n    path: ./ruleset/greatfire.yaml\n    interval: 86400\n\n"
+			if strings.Contains(val, gfStr2) {
+				val = strings.ReplaceAll(val, gfStr2, "")
+				changed = true
+			}
+		}
+		tldStr := "\n\n  tld-not-cn:\n    type: http\n    behavior: domain\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/tld-not-cn.txt\"\n    path: ./ruleset/tld-not-cn.yaml\n    interval: 86400"
+		if strings.Contains(val, tldStr) {
+			val = strings.ReplaceAll(val, tldStr, "")
+			changed = true
+		} else {
+			tldStr2 := "  tld-not-cn:\n    type: http\n    behavior: domain\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/tld-not-cn.txt\"\n    path: ./ruleset/tld-not-cn.yaml\n    interval: 86400\n\n"
+			if strings.Contains(val, tldStr2) {
+				val = strings.ReplaceAll(val, tldStr2, "")
+				changed = true
+			}
+		}
+		if strings.Contains(val, "  lancidr:") {
+			lanStr := "\n\n  lancidr:\n    type: http\n    behavior: ipcidr\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/lancidr.txt\"\n    path: ./ruleset/lancidr.yaml\n    interval: 86400"
+			if strings.Contains(val, lanStr) {
+				val = strings.ReplaceAll(val, lanStr, "")
+				changed = true
+			} else {
+				lanStr2 := "  lancidr:\n    type: http\n    behavior: ipcidr\n    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/lancidr.txt\"\n    path: ./ruleset/lancidr.yaml\n    interval: 86400\n\n"
+				if strings.Contains(val, lanStr2) {
+					val = strings.ReplaceAll(val, lanStr2, "")
+					changed = true
+				}
+			}
+		}
+		if changed {
+			db.Model(&Config{}).Where("key = ?", "clash_rule_providers").Update("value", val)
+		}
 	}
 
 	return db, nil

@@ -42,8 +42,8 @@ func (a *Authenticator) updater() {
 					Where("hash = ?", user.Hash()).
 					Updates(map[string]any{
 						"used":     gorm.Expr("used + ?", sent+recv),
-						"upload":   gorm.Expr("upload + ?", sent),
-						"download": gorm.Expr("download + ?", recv),
+						"upload":   gorm.Expr("upload + ?", recv),   // 客户端上传 = 服务端接收
+						"download": gorm.Expr("download + ?", sent), // 客户端下载 = 服务端发送
 					}).Error
 				if err != nil {
 					log.Error(common.NewError("failed to update traffic to sqlite").Base(err))

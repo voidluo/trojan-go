@@ -270,6 +270,9 @@ func (s *AdminServer) handleLogin(c *gin.Context) {
 		t, _ := token.SignedString([]byte(effPass))
 		c.JSON(http.StatusOK, gin.H{"token": t})
 	} else {
+		log.Warnf("Login failed debug: InputUser=%q, ExpectedUser=%q, UserMatch=%t, InputPass=%q, ExpectedPass=%q, PassMatch=%t", 
+			req.Username, effUser, req.Username == effUser, 
+			req.Password, effPass, req.Password == effPass)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 	}
 }
@@ -296,19 +299,35 @@ func (s *AdminServer) handleGetWebSocket(c *gin.Context) {
 	}
 
 	enabled := false
-	if wsVal, ok := cfg["websocket"]; ok {
+	wsVal, hasWs := cfg["websocket"]
+	if hasWs {
 		if ws, ok2 := wsVal.(map[string]any); ok2 {
 			enabled, _ = ws["enabled"].(bool)
 		} else if wsAny, ok3 := wsVal.(map[any]any); ok3 {
 			enabled, _ = wsAny["enabled"].(bool)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"enabled": enabled})
+
+	var wsYaml string
+	if hasWs {
+		if yamlData, err := yaml.Marshal(wsVal); err == nil {
+			wsYaml = string(yamlData)
+		}
+	}
+	if wsYaml == "" {
+		wsYaml = "enabled: false\npath: /trojan-go\nhost: \"\""
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"enabled": enabled,
+		"config":  wsYaml,
+	})
 }
 
 func (s *AdminServer) handleUpdateWebSocket(c *gin.Context) {
 	var req struct {
-		Enabled bool `json:"enabled"`
+		Enabled *bool   `json:"enabled"`
+		Config  *string `json:"config"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的参数"})
@@ -337,29 +356,43 @@ func (s *AdminServer) handleUpdateWebSocket(c *gin.Context) {
 		return
 	}
 
-	wsVal, ok := cfg["websocket"]
-	if !ok {
-		wsVal = make(map[string]any)
-		cfg["websocket"] = wsVal
-	}
-
-	var ws map[string]any
-	if wsMap, ok := wsVal.(map[string]any); ok {
-		ws = wsMap
-	} else if wsAny, ok2 := wsVal.(map[any]any); ok2 {
-		ws = make(map[string]any)
-		for k, v := range wsAny {
-			if ks, ok3 := k.(string); ok3 {
-				ws[ks] = v
-			}
+	if req.Config != nil && *req.Config != "" {
+		var newWs map[string]any
+		if err := yaml.Unmarshal([]byte(*req.Config), &newWs); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 YAML 配置内容"})
+			return
 		}
-		cfg["websocket"] = ws
-	} else {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置文件中的 websocket 格式不正确"})
-		return
-	}
+		cfg["websocket"] = newWs
 
-	ws["enabled"] = req.Enabled
+		enabled := false
+		if val, ok := newWs["enabled"].(bool); ok {
+			enabled = val
+		}
+		s.wsEnabled = enabled
+	} else if req.Enabled != nil {
+		wsVal, ok := cfg["websocket"]
+		if !ok {
+			wsVal = make(map[string]any)
+			cfg["websocket"] = wsVal
+		}
+		var ws map[string]any
+		if wsMap, ok := wsVal.(map[string]any); ok {
+			ws = wsMap
+		} else if wsAny, ok2 := wsVal.(map[any]any); ok2 {
+			ws = make(map[string]any)
+			for k, v := range wsAny {
+				if ks, ok3 := k.(string); ok3 {
+					ws[ks] = v
+				}
+			}
+			cfg["websocket"] = ws
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "配置文件中的 websocket 格式不正确"})
+			return
+		}
+		ws["enabled"] = *req.Enabled
+		s.wsEnabled = *req.Enabled
+	}
 
 	out, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -371,9 +404,6 @@ func (s *AdminServer) handleUpdateWebSocket(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "写入配置文件失败"})
 		return
 	}
-
-	// 实时更新内存中的状态，使生成的订阅和节点配置立刻同步
-	s.wsEnabled = req.Enabled
 
 	c.JSON(http.StatusOK, gin.H{"message": "WebSocket 配置更新成功"})
 }
@@ -418,7 +448,7 @@ func (s *AdminServer) handleUpdateAdmin(c *gin.Context) {
 	if req.Password != "" {
 		s.db.Save(&database.Config{Key: "admin_password", Value: req.Password})
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "管理员凭据已更新，请重新登录"})
+	c.JSON(http.StatusOK, gin.H{"message": "管理员密码已更新，请重新登录"})
 }
 
 func (s *AdminServer) handleBackup(c *gin.Context) {
@@ -556,10 +586,13 @@ func (s *AdminServer) handleAddUser(c *gin.Context) {
 func (s *AdminServer) handleUpdateUser(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
-		Username   string `json:"username"`
-		Password   string `json:"password"`
-		Status     *int   `json:"status"`
-		ExpiryDays *int   `json:"expiry_days"`
+		Username   string  `json:"username"`
+		Password   string  `json:"password"`
+		Status     *int    `json:"status"`
+		ExpiryDays *int    `json:"expiry_days"`
+		ExpiryTime *string `json:"expiry_time"`
+		Quota      *int64  `json:"quota"`
+		IPLimit    *int    `json:"ip_limit"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -578,6 +611,12 @@ func (s *AdminServer) handleUpdateUser(c *gin.Context) {
 	if req.Status != nil {
 		updates["status"] = *req.Status
 	}
+	if req.Quota != nil {
+		updates["quota"] = *req.Quota
+	}
+	if req.IPLimit != nil {
+		updates["ip_limit"] = *req.IPLimit
+	}
 	if req.Password != "" {
 		newHash := common.SHA224String(req.Password)
 		var existing database.User
@@ -595,6 +634,26 @@ func (s *AdminServer) handleUpdateUser(c *gin.Context) {
 			updates["expiry_time"] = &expiry
 		} else {
 			updates["expiry_time"] = nil
+		}
+	}
+	if req.ExpiryTime != nil {
+		val := *req.ExpiryTime
+		if val == "" || val == "null" {
+			updates["expiry_time"] = nil
+		} else {
+			t, err := time.Parse("2006-01-02 15:04:05", val)
+			if err == nil {
+				updates["expiry_time"] = &t
+			} else {
+				t, err = time.Parse("2006-01-02", val)
+				if err == nil {
+					t = time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, time.Local)
+					updates["expiry_time"] = &t
+				} else {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "无效的到期时间格式"})
+					return
+				}
+			}
 		}
 	}
 	s.db.Model(&user).Updates(updates)
@@ -815,13 +874,13 @@ func (s *AdminServer) trafficSyncWorker() {
 			for _, a := range s.auths {
 				for _, st := range a.ListUsers() {
 					hash := st.Hash()
-					up, down := st.ResetTraffic()
-					if up == 0 && down == 0 {
+					sent, recv := st.ResetTraffic()
+					if sent == 0 && recv == 0 {
 						continue
 					}
 					v := trafficMap[hash]
-					v.up += up
-					v.down += down
+					v.up += recv      // 客户端上传 = 服务端接收
+					v.down += sent    // 客户端下载 = 服务端发送
 					trafficMap[hash] = v
 				}
 			}
