@@ -1,26 +1,34 @@
 FROM golang:alpine AS builder
-WORKDIR /
-ARG REF
-RUN apk add git make &&\
-    git clone https://github.com/voidluo/trojan-go.git
-RUN if [[ -z "${REF}" ]]; then \
-        echo "No specific commit provided, use the latest one." \
-    ;else \
-        echo "Use commit ${REF}" &&\
-        cd trojan-go &&\
-        git checkout ${REF} \
-    ;fi
-RUN cd trojan-go &&\
-    make &&\
-    wget https://github.com/v2fly/domain-list-community/raw/release/dlc.dat -O build/geosite.dat &&\
-    wget https://github.com/v2fly/geoip/raw/release/geoip.dat -O build/geoip.dat &&\
-    wget https://github.com/v2fly/geoip/raw/release/geoip-only-cn-private.dat -O build/geoip-only-cn-private.dat
+RUN apk add --no-cache git make wget
+
+# 准备编译环境并拷贝本地源码
+WORKDIR /app
+COPY . .
+
+# 执行编译
+RUN make
+
+# 下载最新的 Geodata 规则文件
+RUN mkdir -p /geodata && \
+    wget https://github.com/v2fly/domain-list-community/raw/release/dlc.dat -O /geodata/geosite.dat && \
+    wget https://github.com/v2fly/geoip/raw/release/geoip.dat -O /geodata/geoip.dat && \
+    wget https://github.com/v2fly/geoip/raw/release/geoip-only-cn-private.dat -O /geodata/geoip-only-cn-private.dat
 
 FROM alpine
 WORKDIR /
 RUN apk add --no-cache tzdata ca-certificates
-COPY --from=builder /trojan-go/build /usr/local/bin/
-COPY --from=builder /trojan-go/example/server.json /etc/trojan-go/config.json
 
+# 从编译阶段拷贝核心二进制和 CLI 管理工具
+COPY --from=builder /app/build/linux-amd64/trojan-go /usr/local/bin/trojan-go
+COPY --from=builder /app/build/linux-amd64/trojan /usr/local/bin/trojan
+
+# 从编译阶段拷贝地理路由规则文件到 /usr/share/trojan-go 目录
+COPY --from=builder /geodata /usr/share/trojan-go
+
+# 拷贝默认服务端配置文件
+COPY --from=builder /app/example/server.json /etc/trojan-go/config.json
+
+# 默认以配置文件模式运行
 ENTRYPOINT ["/usr/local/bin/trojan-go", "-config"]
 CMD ["/etc/trojan-go/config.json"]
+
