@@ -37,15 +37,9 @@
 ./trojan-go -config config.yaml
 ```
 
-### 3. 使用 Docker 部署
-```shell
-docker run \
-    --name trojan-go \
-    -d \
-    -v /etc/trojan-go/:/etc/trojan-go \
-    --network host \
-    voidluo/trojan-go
-```
+### 3. Docker 部署（待适配）
+目前针对服务端专用版的 Docker 镜像构建及部署方案正在进行适配与完善中，后续版本将正式提供支持。
+
 
 ## 配置文件示例
 
@@ -93,7 +87,7 @@ websocket:
 ## 特性说明
 
 ### Web 管理后台
-默认集成了 Web 管理面板，可以通过 HTTPS 协议（如 `https://您的域名/`）进行访问。
+默认集成了 Web 管理面板，可以通过 HTTPS 协议（如 `https://您的域名/admin/`）进行访问。
 - 支持管理员凭据的存储与校验。
 - 支持实时的用户流量配额、限速、IP 限制及到期时间校验。
 
