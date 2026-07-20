@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -303,7 +304,8 @@ func New(db *gorm.DB, username, password, mountPath string, port int, wsEnabled 
 	// Consume decrypted connections routed from the TLS layer.
 	srv.httpServer = &http.Server{Handler: r}
 	go func() {
-		if err := srv.httpServer.Serve(srv); err != nil && err != http.ErrServerClosed && srv.doneOpen() {
+		// 使用 adminListener 包装 srv 传入 Serve，避免 srv.Close 时的 Shutdown 产生递归死锁
+		if err := srv.httpServer.Serve(&adminListener{AdminServer: srv}); err != nil && err != http.ErrServerClosed && srv.doneOpen() {
 			log.Error("admin panel: TLS-shared HTTP server failed:", err)
 		}
 	}()
@@ -803,17 +805,45 @@ func (s *AdminServer) handleSub(c *gin.Context) {
 	}
 
 	mainDomain, mainPort, mainWs, mainWsPath := s.getMainNodeInfo()
+
+	// 域名优先级：配置文件 sni > serverDomain（启动参数强制域名） > 请求 Host
+	if mainDomain == "" {
+		mainDomain = s.serverDomain
+	}
 	if mainDomain == "" {
 		mainDomain = domain
 	}
 
-	c.Header("Content-Type", "text/yaml; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=clash-%s.yaml", user.Username))
+	// 查询主节点名称（两个生成器共用，避免重复 DB 查询）
+	mainNodeName := "主节点"
+	var cfgTitle database.Config
+	if s.db.Where("`key` = ?", "site_title").First(&cfgTitle).Error == nil && cfgTitle.Value != "" {
+		mainNodeName = cfgTitle.Value
+	}
 
-	// 拉取全部节点生成订阅
+	// 拉取全部节点
 	var nodes []database.Node
 	s.db.Find(&nodes)
-	c.String(http.StatusOK, generateClashConfigMultiNode(s.db, user, nodes, mainDomain, mainPort, mainWs, mainWsPath))
+
+	// ==================== [核心修改部分] ====================
+	// 识别客户端特征
+	userAgent := strings.ToLower(c.Request.UserAgent())
+	isClash := strings.Contains(userAgent, "clash") ||
+		strings.Contains(userAgent, "mihomo") || // Clash Meta 内核已更名为 mihomo，比 "meta" 精确
+		c.Query("clash") == "1"
+
+	if isClash {
+		// 对 Clash 客户端下发 YAML 格式配置
+		c.Header("Content-Type", "text/yaml; charset=utf-8")
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=clash-%s.yaml", user.Username))
+		c.String(http.StatusOK, generateClashConfigMultiNode(s.db, user, nodes, mainDomain, mainPort, mainWs, mainWsPath, mainNodeName))
+	} else {
+		// 对 v2rayN / Shadowrocket 等通用客户端下发 Base64 纯文本
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+		// 不设 Content-Disposition，直接返回纯文本供客户端解析
+		c.String(http.StatusOK, generateBase64MultiNode(user, nodes, mainDomain, mainPort, mainWs, mainWsPath, mainNodeName))
+	}
+	// ==========================================================
 }
 
 // ─── 节点管理 API 处理器 ──────────────────────────────
@@ -1022,9 +1052,43 @@ func (s *AdminServer) handleNodeSync(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"users": validHashes})
 }
 
+// ─── 多节点 v2rayN 通用订阅配置生成器 ────────────────────
+
+// generateBase64MultiNode 生成 Base64 编码的 v2rayN 通用订阅文本
+// 所有节点配置以 trojan:// URI 格式按行拼接后 Base64 编码
+func generateBase64MultiNode(u database.User, nodes []database.Node, defaultDomain string, defaultPort int, defaultWS bool, defaultWSPath string, mainNodeName string) string {
+	var urls []string
+
+	// 1. 主节点 URI（allowInsecure=1 对应自签证书场景，与 Clash skip-cert-verify 等价）
+	mainUri := fmt.Sprintf("trojan://%s@%s:%d?sni=%s&allowInsecure=1", u.Password, defaultDomain, defaultPort, defaultDomain)
+	if defaultWS {
+		mainUri += fmt.Sprintf("&type=ws&host=%s&path=%s", defaultDomain, url.QueryEscape(defaultWSPath))
+	}
+	mainUri += "#" + url.QueryEscape(mainNodeName)
+	urls = append(urls, mainUri)
+
+	// 2. 所有从节点 URI
+	for _, node := range nodes {
+		nodeName := node.Name
+		if nodeName == "" {
+			nodeName = node.Address
+		}
+		uri := fmt.Sprintf("trojan://%s@%s:%d?sni=%s&allowInsecure=1", u.Password, node.Address, node.Port, node.Address)
+		if node.WSEnabled {
+			uri += fmt.Sprintf("&type=ws&host=%s&path=%s", node.Address, url.QueryEscape(node.WSPath))
+		}
+		uri += "#" + url.QueryEscape(nodeName)
+		urls = append(urls, uri)
+	}
+
+	// 3. 按换行拼接后进行 Base64 编码
+	joined := strings.Join(urls, "\n")
+	return base64.StdEncoding.EncodeToString([]byte(joined))
+}
+
 // ─── 多节点 Clash 订阅配置文件生成器 ─────────────────────
 
-func generateClashConfigMultiNode(db *gorm.DB, u database.User, nodes []database.Node, defaultDomain string, defaultPort int, defaultWS bool, defaultWSPath string) string {
+func generateClashConfigMultiNode(db *gorm.DB, u database.User, nodes []database.Node, defaultDomain string, defaultPort int, defaultWS bool, defaultWSPath string, mainNodeName string) string {
 	var sb strings.Builder
 	var cfgRules, cfgProviders database.Config
 	rulesStr := ""
@@ -1051,11 +1115,6 @@ func generateClashConfigMultiNode(db *gorm.DB, u database.User, nodes []database
 	sb.WriteString("proxies:\n")
 
 	// 1. 永远先生成主节点代理配置
-	mainNodeName := "主节点"
-	var cfgTitle database.Config
-	if db.Where("`key` = ?", "site_title").First(&cfgTitle).Error == nil && cfgTitle.Value != "" {
-		mainNodeName = cfgTitle.Value
-	}
 	sb.WriteString(fmt.Sprintf("  - name: \"%s\"\n    type: trojan\n    server: %s\n    port: %d\n    password: %s\n    udp: true\n    sni: %s\n    skip-cert-verify: true\n",
 		mainNodeName, defaultDomain, defaultPort, u.Password, defaultDomain))
 	if defaultWS {
@@ -1479,6 +1538,17 @@ func (s *AdminServer) handleRestart(c *gin.Context) {
 		time.Sleep(200 * time.Millisecond)
 		restartService()
 	}()
+}
+
+// adminListener 包装 AdminServer 以阻断 http.Server.Shutdown() 的链式 Close 调用
+// 从而避免 sync.Once 发生协程内重入死锁
+type adminListener struct {
+	*AdminServer
+}
+
+func (l *adminListener) Close() error {
+	// 刻意留空：真实的关闭逻辑由 AdminServer.Close() 接管
+	return nil
 }
 
 // ServeConn 将一条已完成 TLS 握手的连接交给管理面板处理
