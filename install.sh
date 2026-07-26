@@ -2048,20 +2048,69 @@ setup_relay_node() {
     info "入口节点: ${entry_domain}"
     info "订阅节点名: ${node_name}"
 
-    # 1. 确保 gateway.yaml ���含 relay 路由表（deploy_master 已生成，此处幂等检查）
-    if ! grep -q "relay:" "${CONFIG_DIR}/gateway.yaml" 2>/dev/null; then
-        sed -i "/trojan_service:/a\  relay:\n    ${exit_domain}: ${exit_ip}:443" "${CONFIG_DIR}/gateway.yaml"
+    # Relay 参数会进入 YAML 与 SQL，必须限制为明确的安全子集。
+    local hostname_re='^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
+    if [[ ! "$entry_domain" =~ $hostname_re || ! "$exit_domain" =~ $hostname_re ]]; then
+        error "中继入口或出口域名格式不合法 (错误码: 4)"
+        exit 4
     fi
-    success "Gateway relay 路由已配置"
+    if [[ ! "$exit_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        error "relay_exit_ip 当前仅支持 IPv4 地址 (错误码: 4)"
+        exit 4
+    fi
+    local octet
+    IFS='.' read -r -a relay_ip_octets <<< "$exit_ip"
+    for octet in "${relay_ip_octets[@]}"; do
+        if (( 10#$octet > 255 )); then
+            error "relay_exit_ip 包含无效 IPv4 段: ${octet} (错误码: 4)"
+            exit 4
+        fi
+    done
+    if [[ "$node_name" == *"'"* || "$node_name" == *"\\"* || "$node_name" == *$'\n'* || "$node_name" == *$'\r'* ]]; then
+        error "relay_node_name 包含不允许的引号、反斜杠或控制字符 (错误码: 4)"
+        exit 4
+    fi
 
-    # 2. 重启 gateway 加载 relay 路由表
+    # 1. 原子更新 Gateway relay 路由。已有 relay 段时更新或追加当前 SNI，
+    # 支持同一入口继续增加中国香港→美国等多条组合。
+    local gateway_config="${CONFIG_DIR}/gateway.yaml"
+    local gateway_backup="${gateway_config}.relay-backup.$$"
+    local gateway_tmp="${gateway_config}.relay-tmp.$$"
+    cp -p "$gateway_config" "$gateway_backup"
+
+    if grep -q '^  relay:[[:space:]]*$' "$gateway_config"; then
+        if grep -Fq "    ${exit_domain}:" "$gateway_config"; then
+            awk -v key="$exit_domain" -v value="${exit_ip}:443" '
+                index($0, "    " key ":") == 1 { print "    " key ": " value; next }
+                { print }
+            ' "$gateway_config" > "$gateway_tmp"
+            mv "$gateway_tmp" "$gateway_config"
+        else
+            sed -i "/^  relay:[[:space:]]*$/a\    ${exit_domain}: ${exit_ip}:443" "$gateway_config"
+        fi
+    else
+        sed -i "/trojan_service:/a\  relay:\n    ${exit_domain}: ${exit_ip}:443" "$gateway_config"
+    fi
+
+    if ! "${BIN_DIR}/trojan-go" config-check --service gateway --config "$gateway_config" >/dev/null 2>&1; then
+        cp -p "$gateway_backup" "$gateway_config"
+        rm -f "$gateway_backup" "$gateway_tmp"
+        error "Gateway relay 配置校验失败，已恢复旧配置 (错误码: 10)"
+        exit 10
+    fi
+    success "Gateway relay 路由已配置并通过校验"
+
+    # 2. 重启 gateway 加载 relay 路由表；失败时恢复旧配置和旧服务状态。
     info "重启 gateway 加载 relay 路由表..."
-    systemctl restart trojan-go-gateway.service 2>/dev/null
+    systemctl restart trojan-go-gateway.service 2>/dev/null || true
     sleep 2
     if systemctl is-active --quiet trojan-go-gateway.service; then
         success "Gateway 已重启，SNI relay 路由生效"
     else
-        error "Gateway 重启失败: journalctl -u trojan-go-gateway -n 20"
+        cp -p "$gateway_backup" "$gateway_config"
+        systemctl restart trojan-go-gateway.service 2>/dev/null || true
+        rm -f "$gateway_backup" "$gateway_tmp"
+        error "Gateway 重启失败，已恢复旧配置 (错误码: 11)"
         exit 11
     fi
 
@@ -2072,10 +2121,27 @@ setup_relay_node() {
     fi
 
     local mysql_cmd
-    mysql_cmd=$(build_mysql_cmd)
+    if ! mysql_cmd=$(build_mysql_cmd); then
+        cp -p "$gateway_backup" "$gateway_config"
+        systemctl restart trojan-go-gateway.service 2>/dev/null || true
+        rm -f "$gateway_backup" "$gateway_tmp"
+        error "无法构造 MySQL 连接命令，Gateway 配置已回滚 (错误码: 6)"
+        exit 6
+    fi
 
-    $mysql_cmd -e "DELETE FROM nodes WHERE name='${db_name}';" 2>/dev/null || true
-    $mysql_cmd -e "INSERT INTO nodes (name, address, port, sni, secret, status, ws_enabled, ws_path, traffic_rate, created_at, updated_at) VALUES ('${db_name}', '${entry_domain}', 443, '${exit_domain}', '', 1, false, '/trojan-go', 1.0, NOW(), NOW());" 2>/dev/null &&         success "节点已注册: ${db_name}" ||         warn "节点注册失败，请手动 INSERT INTO nodes"
+    # Relay 虚拟节点不使用节点 Secret，必须保留为 NULL：nodes.secret 有唯一索引，
+    # 写入空字符串会与自动注册 Worker 的 legacy 空值发生冲突。
+    # 删除与插入放在同一事务中，任何 SQL 错误都会回滚，避免旧节点被删后留空。
+    if $mysql_cmd -e "START TRANSACTION; DELETE FROM nodes WHERE name='${db_name}'; INSERT INTO nodes (name, address, port, sni, status, ws_enabled, ws_path, traffic_rate, created_at, updated_at) VALUES ('${db_name}', '${entry_domain}', 443, '${exit_domain}', 1, false, '/trojan-go', 1.0, NOW(), NOW()); COMMIT;"; then
+        success "节点已注册: ${db_name}"
+    else
+        cp -p "$gateway_backup" "$gateway_config"
+        systemctl restart trojan-go-gateway.service 2>/dev/null || true
+        rm -f "$gateway_backup" "$gateway_tmp"
+        error "中继节点写入数据库失败，事务与 Gateway 配置均已回滚 (错误码: 6)"
+        exit 6
+    fi
+    rm -f "$gateway_backup" "$gateway_tmp"
 
     echo ""
     echo -e "  ${BOLD}中继架构（Gateway 内置 SNI 路由）:${NC}"
@@ -2098,8 +2164,21 @@ setup_relay_node() {
 # 双重转码，写进去就是乱码，Go 侧对 "转" 的匹配也会失效。
 build_mysql_cmd() {
     if [[ "$mysql_deploy" == "docker" ]]; then
-        echo "sudo docker exec -i ${mysql_docker_name} mysql -uroot -p${mysql_docker_root_password} --default-character-set=utf8mb4 ${mysql_dbname}"
+        local credentials_file="${MYSQL_DIR}/.credentials"
+        local root_password="${mysql_docker_root_password}"
+        if [[ -f "$credentials_file" ]]; then
+            root_password=$(sed -n 's/^MYSQL_ROOT_PASSWORD=//p' "$credentials_file" | head -n 1)
+        fi
+        if [[ -z "$root_password" || "$root_password" == "AutoGenerate" ]]; then
+            error "无法从 ${credentials_file} 读取真实 MySQL root 密码 (错误码: 6)"
+            return 1
+        fi
+        echo "sudo docker exec -i ${mysql_docker_name} mysql -uroot -p${root_password} --default-character-set=utf8mb4 ${mysql_dbname}"
     else
+        if [[ -z "$mysql_password" || "$mysql_password" == "AutoGenerate" ]]; then
+            error "本地 MySQL 密码未配置 (错误码: 6)"
+            return 1
+        fi
         echo "mysql -h ${mysql_host} -P ${mysql_port} -u ${mysql_user} -p${mysql_password} --default-character-set=utf8mb4 ${mysql_dbname}"
     fi
 }
