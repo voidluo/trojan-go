@@ -1945,7 +1945,7 @@ wait_for_port() {
             return 0
         fi
         sleep 1
-        (( waited++ ))
+        (( ++waited ))
     done
 
     warn "${name} 在 ${timeout}s 内未监听 ${port}，继续启动后续服务"
@@ -2199,7 +2199,7 @@ create_admin_user() {
             break
         fi
         sleep 1
-        (( waited++ ))
+        (( ++waited ))
     done
 
     if (( waited >= max_wait )); then
