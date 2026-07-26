@@ -1156,58 +1156,10 @@ EOF
 
 create_mysql_init_script() {
     cat > "${MYSQL_DIR}/init/01-schema.sql" << 'EOF'
+-- 这里只负责数据库级字符集。业务表结构以当前 Go 模型和版本化迁移为唯一来源，
+-- 避免 install.sh 内的静态 SQL 与 database.InitDatabase() 演进后发生冲突。
 CREATE DATABASE IF NOT EXISTS trojan_go CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-USE trojan_go;
-
--- 用户表
-CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(64) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    quota BIGINT DEFAULT -1,
-    download BIGINT DEFAULT 0,
-    upload BIGINT DEFAULT 0,
-    expiry_time BIGINT DEFAULT -1,
-    status INT DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
-
--- 节点表
-CREATE TABLE IF NOT EXISTS nodes (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(64) NOT NULL,
-    address VARCHAR(255) NOT NULL,
-    port INT NOT NULL,
-    sni VARCHAR(255),
-    traffic_rate FLOAT DEFAULT 1.0,
-    ws_enabled BOOLEAN DEFAULT FALSE,
-    ws_path VARCHAR(255) DEFAULT '/trojan-go',
-    secret VARCHAR(255),
-    status INT DEFAULT 1,
-    last_heartbeat TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
-
--- 同步回执表
-CREATE TABLE IF NOT EXISTS node_sync_receipts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    node_id INT NOT NULL,
-    sync_id VARCHAR(64) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_node_id (node_id),
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB;
-
--- 流量同步回执表
-CREATE TABLE IF NOT EXISTS data_plane_sync_receipts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    sync_id VARCHAR(64) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB;
+ALTER DATABASE trojan_go CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 EOF
 }
 
@@ -2203,9 +2155,8 @@ create_admin_user() {
     done
 
     if (( waited >= max_wait )); then
-        warn "Admin API 未在 ${max_wait}s 内就绪，跳过高可用账户创建"
-        warn "请稍后手动创建: mysql -e \"INSERT INTO users (username, password_hash, quota, expiry_time) VALUES ('${admin_username}', '<bcrypt_hash>', -1, -1)\""
-        return 0
+        error "Admin API 未在 ${max_wait}s 内就绪，无法初始化管理员账户 (错误码: 12)"
+        exit 12
     fi
 
     # 读取内部 Token 用于 API 认证
@@ -2215,8 +2166,8 @@ create_admin_user() {
     fi
 
     if [[ -z "$token" ]]; then
-        warn "无法读取内部 Token，跳过自动创建管理员"
-        return 0
+        error "无法读取内部 Token，不能初始化管理员账户 (错误码: 12)"
+        exit 12
     fi
 
     # 同时通过内部 API 设置 web 管理面板凭据（configs 表中的 admin_username/admin_password）
@@ -2232,7 +2183,8 @@ create_admin_user() {
         if [[ "$admin_http_code" == "200" ]]; then
             success "Web 管理面板凭据已保存 (用户名: ${admin_username})"
         else
-            warn "Web 管理面板凭据设置返回 HTTP ${admin_http_code}"
+            error "Web 管理面板凭据保存失败，API 返回 HTTP ${admin_http_code} (错误码: 12)"
+            exit 12
         fi
     fi
 
@@ -2242,15 +2194,16 @@ create_admin_user() {
         -X POST "http://127.0.0.1:8081/internal/control/v1/users" \
         -H "Content-Type: application/json" \
         -H "X-Internal-Token: ${token}" \
-        -d "{\"username\":\"${admin_username}\",\"password\":\"${admin_password}\",\"quota\":-1,\"expiry_time\":-1}" \
+        -d "{\"username\":\"${admin_username}\",\"password\":\"${admin_password}\",\"quota\":-1}" \
         2>/dev/null)
 
     if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
         success "管理员代理账户已创建: ${admin_username}"
-    elif [[ "$http_code" == "409" || "$http_code" == "400" ]]; then
-        info "管理员代理账户已存在或参数冲突 (HTTP ${http_code})"
+    elif [[ "$http_code" == "409" ]]; then
+        info "管理员代理账户已存在 (HTTP ${http_code})"
     else
-        warn "管理员 API 返回 HTTP ${http_code}"
+        error "管理员代理账户创建失败，API 返回 HTTP ${http_code} (错误码: 12)"
+        exit 12
     fi
 }
 
