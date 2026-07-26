@@ -2190,7 +2190,7 @@ EOSQL
 create_admin_user() {
     info "创建管理员账户..."
 
-    local admin_token="${DEPLOY_DIR}/internal-token"
+    local admin_token="${INTERNAL_TOKEN_FILE}"
     local max_wait=30 waited=0
 
     # 等待 admin API 就绪
