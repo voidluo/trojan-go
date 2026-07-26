@@ -2,12 +2,15 @@ package webserver
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -338,6 +341,13 @@ func (s *AdminServer) handleDeleteNode(c *gin.Context) {
 func (s *AdminServer) autoRegisterNode(c *gin.Context, secret string) (database.Node, error) {
 	node, err := database.NodeBySecret(s.db, secret)
 	if err == nil {
+		// Existing node: let a worker that now reports a domain heal an
+		// address/sni that was previously stored as a bare IP.
+		if applyReportedNodeDomain(&node, c) {
+			if saveErr := s.db.Save(&node).Error; saveErr != nil {
+				log.Errorf("node %d: persist reported domain: %v", node.ID, saveErr)
+			}
+		}
 		return node, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -345,9 +355,28 @@ func (s *AdminServer) autoRegisterNode(c *gin.Context, secret string) (database.
 	}
 	now := time.Now()
 	ip := c.ClientIP()
+
+	// Prefer the domain the worker reports about itself. nodes.address and
+	// nodes.sni are published in subscriptions as the Clash `server` and the
+	// TLS SNI, so storing a bare IP here makes every client fail the TLS
+	// handshake against the node's domain-scoped certificate.
+	domain := reportedNodeDomain(c)
+	address := domain
+	if address == "" {
+		address = ip
+	}
+
+	// The display name prefers the worker's region label so subscriptions read
+	// `tcp-新加坡` rather than `tcp-xjp.liteops.top`.
+	name := reportedNodeLocation(c)
+	if name == "" {
+		name = address
+	}
+
 	node = database.Node{
-		Name:        ip,
-		Address:     ip,
+		Name:        name,
+		Address:     address,
+		SNI:         domain,
 		Port:        443,
 		Secret:      secret,
 		Status:      1,
@@ -360,8 +389,123 @@ func (s *AdminServer) autoRegisterNode(c *gin.Context, secret string) (database.
 	if createErr := s.db.Create(&node).Error; createErr != nil {
 		return node, createErr
 	}
-	log.Infof("auto-registered worker node id=%d ip=%s", node.ID, ip)
+	if domain == "" {
+		log.Warnf("auto-registered worker node id=%d without a reported domain; "+
+			"address/sni fall back to ip=%s and subscription clients will fail TLS "+
+			"SNI validation until node.server_domain is set on the worker",
+			node.ID, ip)
+	} else {
+		log.Infof("auto-registered worker node id=%d name=%q domain=%s ip=%s", node.ID, name, domain, ip)
+	}
 	return node, nil
+}
+
+// reportedNodeLocation returns the worker-declared region label from the
+// X-Node-Location header, e.g. 新加坡.
+//
+// Unlike the domain this is free-form display text (CJK is expected), so it is
+// validated for length and for characters that would corrupt the generated
+// subscription rather than against a hostname grammar. Node names are emitted
+// through yamlScalar, so YAML quoting itself is already handled; what must be
+// rejected here are control characters that no encoder should have to carry.
+func reportedNodeLocation(c *gin.Context) string {
+	encoded := strings.TrimSpace(c.GetHeader("X-Node-Location-B64"))
+	if encoded == "" || len(encoded) > 128 {
+		return ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || len(raw) == 0 || len(raw) > 64 || !utf8.Valid(raw) {
+		return ""
+	}
+	location := strings.TrimSpace(string(raw))
+	if location == "" {
+		return ""
+	}
+	for _, r := range location {
+		// Reject C0/C1 control characters and DEL.
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return ""
+		}
+	}
+	return location
+}
+
+// reportedNodeDomain returns the worker-declared domain from the X-Node-Domain
+// header.
+//
+// The header is only trusted to the extent that it must look like a plain
+// hostname. The value ends up in published subscriptions as the Clash `server`
+// and TLS SNI, so a malformed or hostile value must not be able to inject
+// arbitrary text there. Requests reaching these handlers are already
+// authenticated by X-Node-Secret.
+func reportedNodeDomain(c *gin.Context) string {
+	domain := strings.TrimSpace(c.GetHeader("X-Node-Domain"))
+	if domain == "" || len(domain) > 253 {
+		return ""
+	}
+	// Require a dotted hostname: reject bare IPs and single labels, since
+	// neither works as a certificate domain for subscription clients.
+	if net.ParseIP(domain) != nil || !strings.Contains(domain, ".") {
+		return ""
+	}
+	for _, r := range domain {
+		allowed := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '-'
+		if !allowed {
+			return ""
+		}
+	}
+	if strings.HasPrefix(domain, ".") || strings.HasPrefix(domain, "-") ||
+		strings.HasSuffix(domain, ".") || strings.HasSuffix(domain, "-") ||
+		strings.Contains(domain, "..") {
+		return ""
+	}
+	return strings.ToLower(domain)
+}
+
+// applyReportedNodeDomain updates name/address/sni from the worker-reported
+// domain and reports whether anything changed.
+//
+// An operator may deliberately point a node at a specific address, so an
+// existing domain-shaped value is never overwritten. Only values that are empty
+// or a bare IP — the pre-fix auto-registration result — are healed.
+func applyReportedNodeDomain(node *database.Node, c *gin.Context) bool {
+	domain := reportedNodeDomain(c)
+	location := reportedNodeLocation(c)
+	changed := false
+
+	if domain != "" {
+		if node.Address == "" || net.ParseIP(node.Address) != nil {
+			if node.Address != domain {
+				log.Infof("node %d: address %q -> reported domain %q", node.ID, node.Address, domain)
+				node.Address = domain
+				changed = true
+			}
+		}
+		if node.SNI == "" || net.ParseIP(node.SNI) != nil {
+			if node.SNI != domain {
+				node.SNI = domain
+				changed = true
+			}
+		}
+	}
+
+	// Heal a name that carries no operator intent: either empty, or a bare IP
+	// / the node's own domain, both of which are auto-registration artifacts.
+	// Prefer the region label, falling back to the domain.
+	if node.Name == "" || net.ParseIP(node.Name) != nil ||
+		(domain != "" && node.Name == domain) {
+		preferred := location
+		if preferred == "" {
+			preferred = domain
+		}
+		if preferred != "" && node.Name != preferred {
+			log.Infof("node %d: name %q -> %q", node.ID, node.Name, preferred)
+			node.Name = preferred
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (s *AdminServer) handleNodeSync(c *gin.Context) {

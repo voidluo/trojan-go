@@ -16,12 +16,12 @@ import (
 
 type standaloneConfig struct {
 	Admin struct {
-		Enabled     bool   `yaml:"enabled"`
-		Username    string `yaml:"username"`
-		Password    string `yaml:"password"`
-		DBPath      string `yaml:"db"`
-		Path        string `yaml:"path"`
-		SubPath     string `yaml:"sub_path"`
+		Enabled      bool   `yaml:"enabled"`
+		Username     string `yaml:"username"`
+		Password     string `yaml:"password"`
+		DBPath       string `yaml:"db"`
+		Path         string `yaml:"path"`
+		SubPath      string `yaml:"sub_path"`
 		ServerDomain string `yaml:"server_domain"`
 	} `yaml:"admin"`
 	Node struct {

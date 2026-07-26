@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,8 @@ type NodeSyncManager struct {
 	db              *gorm.DB
 	masterURL       string
 	secret          string
+	serverDomain    string // reported via X-Node-Domain; see NodeConfig.ServerDomain
+	nodeLocation    string // reported via X-Node-Location; see NodeConfig.NodeLocation
 	syncInterval    time.Duration
 	auths           []statistic.Authenticator
 	pendingTraffic  map[string]trafficStats // 已从认证器取走、尚未被主节点确认的固定批次
@@ -184,6 +187,21 @@ func (m *NodeSyncManager) getSyncClient() *http.Client {
 	return m.syncClient
 }
 
+// setIdentityHeaders attaches this worker's self-declared identity to a request
+// bound for the master. The master uses these to populate nodes.address /
+// nodes.sni / nodes.name instead of falling back to the request source IP.
+// Both headers are optional; empty values are simply omitted. nodeLocation may
+// contain Chinese text, which net/http does not permit in a raw header value,
+// so it is encoded as unpadded Base64URL UTF-8.
+func (m *NodeSyncManager) setIdentityHeaders(req *http.Request) {
+	if m.serverDomain != "" {
+		req.Header.Set("X-Node-Domain", m.serverDomain)
+	}
+	if m.nodeLocation != "" {
+		req.Header.Set("X-Node-Location-B64", base64.RawURLEncoding.EncodeToString([]byte(m.nodeLocation)))
+	}
+}
+
 func (m *NodeSyncManager) getHeartbeatClient() *http.Client {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -202,11 +220,18 @@ func (m *NodeSyncManager) getHeartbeatClient() *http.Client {
 // Parameters:
 //   - masterURL: the master node's sync endpoint URL
 //   - secret: the node's shared secret for authentication
+//   - serverDomain: this worker's own public domain, reported to the master via
+//     the X-Node-Domain header. May be empty, in which case the master falls
+//     back to the request source IP (which breaks TLS SNI — see
+//     NodeConfig.ServerDomain).
+//   - nodeLocation: this worker's region label, reported via X-Node-Location and
+//     used as nodes.name. May be empty, in which case the node name falls back
+//     to the domain.
 //   - intervalSec: sync interval in seconds (0 or negative for default)
 //   - outboxPath: optional path for the persistent traffic outbox file
 //
 // Returns a configured manager and any error encountered during outbox setup.
-func NewManager(masterURL, secret string, intervalSec int, outboxPath ...string) (*NodeSyncManager, error) {
+func NewManager(masterURL, secret, serverDomain, nodeLocation string, intervalSec int, outboxPath ...string) (*NodeSyncManager, error) {
 	interval := normalizedSyncInterval(intervalSec)
 	if intervalSec <= 0 {
 		log.Warnf("node sync manager: invalid sync interval %ds; using default %s", intervalSec, interval)
@@ -219,6 +244,8 @@ func NewManager(masterURL, secret string, intervalSec int, outboxPath ...string)
 	m := &NodeSyncManager{
 		masterURL:       masterURL,
 		secret:          secret,
+		serverDomain:    serverDomain,
+		nodeLocation:    nodeLocation,
 		syncInterval:    interval,
 		pendingTraffic:  make(map[string]trafficStats),
 		queuedTraffic:   make(map[string]trafficStats),
@@ -233,7 +260,12 @@ func NewManager(masterURL, secret string, intervalSec int, outboxPath ...string)
 	if outboxErr != nil {
 		log.Errorf("node sync manager: traffic outbox unavailable: %v", outboxErr)
 	}
-	log.Infof("node sync manager created: master_url=%s, interval=%s, outbox=%s", masterURL, interval, path)
+	if serverDomain == "" {
+		log.Warn("node sync manager: node.server_domain is empty; the master will " +
+			"fall back to this node's source IP for nodes.address/nodes.sni, which " +
+			"breaks TLS SNI matching for subscription clients")
+	}
+	log.Infof("node sync manager created: master_url=%s, server_domain=%s, node_location=%s, interval=%s, outbox=%s", masterURL, serverDomain, nodeLocation, interval, path)
 	return m, nil
 }
 
@@ -244,11 +276,11 @@ func NewManager(masterURL, secret string, intervalSec int, outboxPath ...string)
 // migration to an injectable constructor.
 //
 // This function now delegates to NewManager for the actual construction.
-func InitManager(masterURL, secret string, intervalSec int, outboxPath ...string) {
+func InitManager(masterURL, secret, serverDomain, nodeLocation string, intervalSec int, outboxPath ...string) {
 	alreadyInitialized := true
 	managerOnce.Do(func() {
 		alreadyInitialized = false
-		m, err := NewManager(masterURL, secret, intervalSec, outboxPath...)
+		m, err := NewManager(masterURL, secret, serverDomain, nodeLocation, intervalSec, outboxPath...)
 		if err != nil {
 			log.Errorf("node sync manager: failed to create manager: %v", err)
 			return
@@ -481,6 +513,7 @@ func (m *NodeSyncManager) performSync() {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Node-Secret", m.secret)
 	req.Header.Set("X-Node-Sync-ID", syncID)
+	m.setIdentityHeaders(req)
 
 	resp, err := m.getSyncClient().Do(req)
 	if err != nil {
@@ -687,6 +720,7 @@ func (m *NodeSyncManager) performHeartbeat() {
 		return
 	}
 	req.Header.Set("X-Node-Secret", m.secret)
+	m.setIdentityHeaders(req)
 
 	resp, err := m.getHeartbeatClient().Do(req)
 	if err != nil {

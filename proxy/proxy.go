@@ -260,7 +260,7 @@ func NewProxyFromConfigData(data []byte, isJSON bool) (*Proxy, error) {
 			if nodeCfg.Node.TrafficOutbox == "" {
 				return nil, common.NewError("worker node synchronization requires node.traffic_outbox")
 			}
-			nodesync.InitManager(nodeCfg.Node.MasterURL, nodeCfg.Node.Secret, nodeCfg.Node.SyncInterval, nodeCfg.Node.TrafficOutbox)
+			nodesync.InitManager(nodeCfg.Node.MasterURL, nodeCfg.Node.Secret, nodeCfg.Node.ServerDomain, nodeCfg.Node.NodeLocation, nodeCfg.Node.SyncInterval, nodeCfg.Node.TrafficOutbox)
 			if mgr := nodesync.GetManager(); mgr != nil {
 				mgr.Start(ctx)
 			}

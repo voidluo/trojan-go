@@ -91,6 +91,7 @@ hy2_port=443
 hy2_masquerade="https://www.bilibili.com"
 hy2_up_mbps=100
 hy2_down_mbps=500
+node_location="节点"
 db_type="mysql"
 mysql_deploy="docker"
 mysql_docker_name="trojan-mysql"
@@ -334,6 +335,7 @@ load_config() {
             hy2_masquerade) hy2_masquerade="$value" ;;
             hy2_up_mbps) hy2_up_mbps="$value" ;;
             hy2_down_mbps) hy2_down_mbps="$value" ;;
+            node_location) node_location="$value" ;;
             db_type) db_type="$value" ;;
             mysql_deploy) mysql_deploy="$value" ;;
             mysql_docker_name) mysql_docker_name="$value" ;;
@@ -1399,6 +1401,8 @@ node:
   enabled: true
   master_url: https://${master}/control/v1/nodes/sync
   secret: "${secret}"
+  server_domain: "${worker}"
+  node_location: "${node_location}"
   sync_interval: ${sync_interval}
   traffic_outbox: ${DATA_DIR}/traffic-outbox.json
 EOF
@@ -1466,6 +1470,11 @@ node:
   enabled: true
   master_url: https://${master}/control/v1/nodes/sync
   secret: "${secret}"
+  # 上报本节点自身域名（X-Node-Domain），主节点据此写 nodes.address / nodes.sni。
+  # 缺失时主节点只能回退用心跳来源 IP，订阅里的 SNI 会与本节点证书不匹配，
+  # 客户端 TLS 握手必然失败。
+  server_domain: "${worker}"
+  node_location: "${node_location}"
   sync_interval: ${sync_interval}
   traffic_outbox: ${DATA_DIR}/traffic-outbox.json
 EOF
@@ -1901,13 +1910,25 @@ enable_and_start_services() {
     local unit
     for unit in "${units[@]}"; do
         info "启动 ${unit}.service"
-        systemctl enable "${unit}.service" &>/dev/null
+        if ! systemctl enable "${unit}.service" &>/dev/null; then
+            warn "${unit}.service enable 失败，服务将无法开机自启"
+        fi
         systemctl restart "${unit}.service"
 
-        # admin 首启需执行 AutoMigrate，固定 sleep 不可靠，改为轮询端口
-        if [[ "$unit" == "trojan-go-admin" ]]; then
-            wait_for_port "${ADMIN_ADDR##*:}" 30 "admin-service"
-        fi
+        # 首个接库的服务需完成 AutoMigrate，固定 sleep 不可靠，改为轮询端口。
+        # 必须串行等待：control 与 data-plane 若并发建表，GORM 会撞上
+        # MySQL 1060 duplicate column，data-plane 首启直接崩溃。
+        case "$unit" in
+            trojan-go-admin)
+                wait_for_port "${ADMIN_ADDR##*:}" 30 "admin-service"
+                ;;
+            trojan-go-control)
+                wait_for_port "${CONTROL_ADDR##*:}" 30 "control-service"
+                ;;
+            trojan-go-data-plane)
+                wait_for_port "${DATA_PLANE_ADDR##*:}" 30 "data-plane"
+                ;;
+        esac
     done
 
     verify_services_active "${units[@]}"
@@ -2099,11 +2120,7 @@ setup_relay_node() {
     fi
 
     local mysql_cmd
-    if [[ "$mysql_deploy" == "docker" ]]; then
-        mysql_cmd="docker exec ${mysql_docker_name} mysql -u root -p${mysql_docker_root_password} --default-character-set=utf8mb4 ${mysql_dbname}"
-    else
-        mysql_cmd="mysql -h ${mysql_host} -P ${mysql_port} -u ${mysql_user} -p${mysql_password} --default-character-set=utf8mb4 ${mysql_dbname}"
-    fi
+    mysql_cmd=$(build_mysql_cmd)
 
     $mysql_cmd -e "DELETE FROM nodes WHERE name='${db_name}';" 2>/dev/null || true
     $mysql_cmd -e "INSERT INTO nodes (name, address, port, sni, secret, status, ws_enabled, ws_path, traffic_rate, created_at, updated_at) VALUES ('${db_name}', '${entry_domain}', 443, '${exit_domain}', '', 1, false, '/trojan-go', 1.0, NOW(), NOW());" 2>/dev/null &&         success "节点已注册: ${db_name}" ||         warn "节点注册失败，请手动 INSERT INTO nodes"
@@ -2120,6 +2137,52 @@ setup_relay_node() {
     echo -e "  ${BOLD}协议:${NC}       TCP/Trojan (无 Hysteria2)"
 }
 
+
+# ==============================================================================
+# 14a. 订阅相关配置项落库
+# ==============================================================================
+# 构造 MySQL 客户端命令。统一带 --default-character-set=utf8mb4：
+# 容器的 character_set_client/connection 默认是 latin1，不指定会让中文经历
+# 双重转码，写进去就是乱码，Go 侧对 "转" 的匹配也会失效。
+build_mysql_cmd() {
+    if [[ "$mysql_deploy" == "docker" ]]; then
+        echo "sudo docker exec -i ${mysql_docker_name} mysql -uroot -p${mysql_docker_root_password} --default-character-set=utf8mb4 ${mysql_dbname}"
+    else
+        echo "mysql -h ${mysql_host} -P ${mysql_port} -u ${mysql_user} -p${mysql_password} --default-character-set=utf8mb4 ${mysql_dbname}"
+    fi
+}
+
+# 把订阅生成依赖的配置项写入 configs 表。
+# 这些键由 subscription.go 读取，缺失时会静默退化：
+#   hysteria_enabled 缺失 → 订阅不含任何 HY2 条目
+#   node_location    缺失 → 主节点名退化为默认值 "节点"
+# 之前这些值只能靠手动 UPDATE，重装即丢失，故在部署流程内固化。
+seed_subscription_configs() {
+    [[ "$DEPLOY_MODE" != "master" ]] && return 0
+
+    info "写入订阅配置项 (configs)..."
+
+    local mysql_cmd
+    mysql_cmd=$(build_mysql_cmd)
+
+    # ON DUPLICATE KEY UPDATE 保证重复部署时收敛到 config.conf 的声明值，
+    # 而不是保留上一次可能已被手工改动的旧值。
+    if $mysql_cmd <<EOSQL 2>/dev/null
+INSERT INTO configs (\`key\`, value) VALUES
+  ('hysteria_enabled', '${hy2_enabled}'),
+  ('hysteria_port', '${hy2_port}'),
+  ('hysteria_up_mbps', '${hy2_up_mbps}'),
+  ('hysteria_down_mbps', '${hy2_down_mbps}'),
+  ('node_location', '${node_location}')
+ON DUPLICATE KEY UPDATE value = VALUES(value);
+EOSQL
+    then
+        success "订阅配置已写入 (hysteria_enabled=${hy2_enabled}, node_location=${node_location})"
+    else
+        warn "订阅配置写入失败，订阅可能缺少 HY2 条目或使用默认节点名"
+        warn "可手动执行: UPDATE configs SET value='${hy2_enabled}' WHERE \`key\`='hysteria_enabled';"
+    fi
+}
 
 # ==============================================================================
 # 14b. 自动创建管理员用户
@@ -2402,9 +2465,10 @@ main() {
         deploy_worker
     fi
 
-    # 9b. 自动创建管理员用户 (master 模式)
+    # 9b. 自动创建管理员用户 + 写入订阅配置项 (master 模式)
     if [[ "$DEPLOY_MODE" == "master" ]]; then
         create_admin_user
+        seed_subscription_configs
     fi
 
     # 10. 输出结果

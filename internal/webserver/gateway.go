@@ -363,7 +363,6 @@ func (g *Gateway) Serve() error {
 	}
 }
 
-
 // tryRelayRoute peeks at the TLS ClientHello on rawConn. If the SNI matches a
 // key in g.relayTable, the raw TCP stream is forwarded to the configured exit
 // address without local TLS termination. Returns (true, nil) if relayed,
